@@ -30,30 +30,45 @@ const PLAN_COLORS = {
 };
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
 
-// --- [UPDATED] Reusable Components ---
 const DashboardHeader = () => {
-  const navigation = useNavigation();
-  const { user } = useAuth(); // Get authenticated admin user
+    const navigation = useNavigation();
+    const { user } = useAuth(); 
+    const {showAlert} = useAlert();
+    const handleNavigation = (destination, allowedRoles) => {
+        if (allowedRoles.includes(user?.role)) {
+            navigation.navigate(destination);
+        } else {
+            showAlert("Access Denied", "You do not have permission for this action.");
+        }
+    };
 
-  return (
-    <View style={styles.headerContainer}>
-      <View>
-        <Text style={styles.headerTitle}>Dashboard</Text>
-        <Text style={styles.headerSubtitle}>Analytics & System Overview</Text>
-      </View>
-      <TouchableOpacity onPress={() => navigation.navigate('AdminProfile')}>
-        <Image
-          // Use the admin's photoUrl from AuthContext, with a fallback
-          source={user?.photoUrl ? { uri: user.photoUrl } : require('../../assets/images/default-avatar.jpg')}
-          style={styles.avatar}
-        />
-      </TouchableOpacity>
-    </View>
-  );
+    return (
+        <View style={styles.headerContainer}>
+            <TouchableOpacity style={styles.profileContainer} onPress={() => navigation.navigate('AdminProfile')}>
+                <Image
+                    source={user?.photoUrl ? { uri: user.photoUrl } : require('../../assets/images/default-avatar.jpg')}
+                    style={styles.avatar}
+                />
+                <View>
+                    <Text style={styles.welcomeText}>Hello,</Text>
+                    <Text style={styles.profileName}>{user?.displayName || 'Admin'}</Text>
+                </View>
+            </TouchableOpacity>
+            
+            <View style={styles.headerActions}>
+                <TouchableOpacity style={styles.headerButton} onPress={() => handleNavigation('Broadcast', ['admin'])}>
+                    <Ionicons name="megaphone-outline" size={26} color={theme.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('Notification')}>
+                    <Ionicons name="notifications-outline" size={26} color={theme.textSecondary} />
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
 };
 
-const StatCard = ({ label, value, icon, iconBgColor, trend, trendColor }) => (
-    <View style={styles.statCard}>
+const StatCard = ({ label, value, icon, iconBgColor, trend, trendColor, onPress }) => (
+    <TouchableOpacity style={styles.statCard} onPress={onPress} activeOpacity={0.7}>
         <View style={[styles.statIconContainer, { backgroundColor: iconBgColor || theme.primary }]}>
             {icon}
         </View>
@@ -67,11 +82,11 @@ const StatCard = ({ label, value, icon, iconBgColor, trend, trendColor }) => (
                 <Text style={[styles.trendText, { color: trendColor }]}>{trend}</Text>
              </View>
         )}
-    </View>
+    </TouchableOpacity>
 );
 
 
-const UserRow = ({ item, isLast }) => {
+const UserRow = ({ item, isLast, navigate}) => {
     const getStatusStyle = (status) => {
         switch (status) {
             case 'Overdue': return { label: 'Pending', backgroundColor: '#FEF3C7', color: '#D97706' };
@@ -84,10 +99,10 @@ const UserRow = ({ item, isLast }) => {
     const statusInfo = getStatusStyle(item.status);
 
     return (
+      <TouchableOpacity onPress={navigate} activeOpacity={0.7}>
         <View style={[styles.userRow, isLast && styles.lastUserRow]}>
             <View style={styles.userInfo}>
                 <Image
-                    // Use the photoUrl from the item prop, or fall back to a default avatar
                     source={item.photoUrl ? { uri: item.photoUrl } : require('../../assets/images/default-avatar.jpg')}
                     style={styles.userAvatar}
                 />
@@ -100,30 +115,29 @@ const UserRow = ({ item, isLast }) => {
                 <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
             </View>
         </View>
+    </TouchableOpacity>
     );
 };
 
-
-// --- UserStatusList now uses the efficient UserRow component ---
 const UserStatusList = ({ users }) => {
     const navigation = useNavigation();
-    const { user } = useAuth(); // 1. Get the current logged-in admin/user
+    const { user } = useAuth();
+    const { showAlert } = useAlert();
 
-    // 2. Create the new guarded navigation handler
-    const handleViewAllPress = () => {
-        if (user.role === 'admin') {
-            navigation.navigate('UserManagementScreen');
+    const handleNavigation = (destination, allowedRoles, params = {}) => {
+        if (allowedRoles.includes(user?.role)) {
+            navigation.navigate(destination, params);
         } else {
-            showAlert("Access Denied", "You do not have permission to view the full user list.");
+            showAlert("Access Denied", "You do not have permission for this action.");
         }
     };
-    
+
     if (!users || users.length === 0) {
         return (
             <View style={[styles.card, { alignItems: 'center', paddingVertical: 40 }]}>
                 <Ionicons name="checkmark-done-circle-outline" size={40} color={theme.success} />
                 <Text style={styles.emptyText}>No users require immediate attention.</Text>
-                <TouchableOpacity onPress={handleViewAllPress} style={{marginTop: 12,  borderColor: '#007BFF',  borderWidth: 1.5, borderRadius: 10, padding: 10, backgroundColor: '#F8F9FA',}}>
+                <TouchableOpacity onPress={() => handleNavigation('UserManagementScreen', ['admin'])} style={{marginTop: 12,  borderColor: '#007BFF',  borderWidth: 1.5, borderRadius: 10, padding: 10, backgroundColor: '#F8F9FA',}}>
                    <Text style={styles.seeMoreText}>View All Users</Text>
                 </TouchableOpacity>
             </View>
@@ -134,23 +148,22 @@ const UserStatusList = ({ users }) => {
         <View style={styles.card}>
             <View style={styles.cardHeaderWithAction}>
                 <Text style={styles.cardTitle}>Subscriber Status</Text>
-                <TouchableOpacity onPress={handleViewAllPress}>
+                <TouchableOpacity onPress={() => handleNavigation('UserManagementScreen', ['admin'])}>
                    <Text style={styles.seeMoreText}>View All</Text>
                 </TouchableOpacity>
             </View>
              {users.filter(Boolean).map((item, index) => (
                 <UserRow
-                    key={item.id}
+                    key={item.id} 
                     item={item}
                     isLast={index === users.length - 1}
+                    navigate={() => handleNavigation('UserDetail', ['admin'], { userId: item.id })}
                 />
             ))}
         </View>
     );
 };
 
-
-// --- Chart Components (No Changes) ---
 const SubscriptionDistributionChart = ({ data, total }) => {
     const chartData = data?.map(item => ({
         value: item.percentage,
@@ -202,26 +215,21 @@ const SubscriptionDistributionChart = ({ data, total }) => {
 
 const MonthlySubscribersBarChart = ({ data }) => {
     const planNames = Object.keys(PLAN_COLORS);
-
     const chartData = MONTH_NAMES.flatMap((name, index) => {
         const monthData = data?.find(d => d.month === index + 1);
-
         const barsForThisMonth = planNames.map((planName, planIndex) => {
             const planInfo = monthData?.plans.find(p => p.name === planName);
             const value = planInfo?.count || 0;
-
             const barObject = {
-                value: value,
+                value: value, 
                 frontColor: PLAN_COLORS[planName],
                 spacing: 1,
             };
-
             if (planIndex === 0) {
                 barObject.label = name;
             }
             return barObject;
         });
-
         return barsForThisMonth;
     });
 
@@ -263,59 +271,124 @@ const MonthlySubscribersBarChart = ({ data }) => {
 };
 
 
-// --- Main Screen (No Changes) ---
 export default function AdminDashboardScreen() {
     const { showAlert } = useAlert();
+    const navigation = useNavigation();
     const [stats, setStats] = useState(null);
+    const { user } = useAuth();
     const [analytics, setAnalytics] = useState(null);
     const [userStatusList, setUserStatusList] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    const fetchDashboardData = useCallback(async () => {
-        setIsLoading(true);
+
+    const fetchData = useCallback(async () => {
         try {
             const [statsRes, analyticsRes, userStatusRes] = await Promise.all([
-                api.get('/admin/stats'), api.get('/admin/dashboard-analytics'), api.get('/admin/dashboard-user-list?limit=4'),
+                api.get('/admin/stats'),
+                api.get('/admin/dashboard-analytics'),
+                api.get('/admin/dashboard-user-list?limit=4'),
             ]);
+
             setStats(statsRes.data);
             setAnalytics(analyticsRes.data);
             setUserStatusList(userStatusRes.data);
         } catch (error) {
-            console.error("API Error:", error.response ? error.response.data : error.message);
-            showAlert("Fetch Error", "Could not fetch dashboard data. Please try again.");
-        } finally {
-            setIsLoading(false);
+            console.error("API Error during fetch:", error.response ? error.response.data : error.message);
+            if (stats) { 
+                 showAlert("Fetch Error", "Could not fetch dashboard data. Please try again.");
+            }
         }
-    }, [showAlert]);
+    }, [showAlert, stats]);
 
+     const handleNavigation = (destination, allowedRoles) => {
+        if (allowedRoles.includes(user?.role)) {
+            navigation.navigate(destination);
+        } else {
+            showAlert("Access Denied", "You do not have permission for this action.");
+        }
+    };
+
+
+    const handleRefresh = useCallback(async () => {
+        setIsRefreshing(true);
+        try {
+            await api.post('/admin/trigger-analytics-update');
+            await fetchData();
+
+        } catch (error) {
+            console.error("API Error during refresh:", error.response ? error.response.data : error.message);
+            showAlert("Refresh Error", "Could not update dashboard data. Please check your connection.");
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [fetchData, showAlert]);
+
+    
 
     useFocusEffect(
         useCallback(() => {
             if (!stats) {
-                fetchDashboardData();
+                setIsLoading(true);
+                fetchData().finally(() => setIsLoading(false));
             }
-        }, [stats, fetchDashboardData])
+        }, [stats, fetchData])
     );
 
     if (isLoading && !stats) return <SafeAreaView style={styles.container}><ActivityIndicator size="large" color={theme.primary} style={styles.centered} /></SafeAreaView>;
     if (!stats || !analytics || !userStatusList) {
         return (
-            <SafeAreaView style={styles.container}><View style={styles.centered}>
-                <Text style={styles.emptyText}>Failed to load dashboard data.</Text>
-                <TouchableOpacity onPress={fetchDashboardData} style={styles.retryButton}><Text style={styles.retryButtonText}>Tap to Retry</Text></TouchableOpacity>
-            </View></SafeAreaView>
+            <SafeAreaView style={styles.container}>
+                <View style={styles.centered}>
+                    <Text style={styles.emptyText}>Failed to load dashboard data.</Text>
+                    <TouchableOpacity onPress={() => {
+                        setIsLoading(true);
+                        fetchData().finally(() => setIsLoading(false));
+                    }} style={styles.retryButton}>
+                        <Text style={styles.retryButtonText}>Tap to Retry</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
         );
     }
 
     return (
         <SafeAreaView style={styles.container}>
-            <ScrollView contentContainerStyle={styles.scrollContainer} refreshControl={<RefreshControl refreshing={isLoading} onRefresh={fetchDashboardData} tintColor={theme.primary} />}>
-                <DashboardHeader />
+            <ScrollView contentContainerStyle={styles.scrollContainer} refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={theme.primary} />}>
+                 <DashboardHeader handleNavigation={handleNavigation} />
                 <View style={styles.statsGrid}>
-                    <StatCard label="Total Subscribers" value={stats.activeSubscriptions} icon={<Ionicons name="people-outline" size={24} color="white" />} iconBgColor={theme.primary} trend={`+${analytics.quickAccess.newSubscribersThisMonth}`} trendColor={theme.success} />
-                    <StatCard label="Pending Payments" value={analytics.quickAccess.overduePayments} icon={<Ionicons name="alert-circle-outline" size={24} color="white" />} iconBgColor={theme.danger} />
-                    <StatCard label="Open Tickets" value={stats.openTickets} icon={<Ionicons name="chatbox-ellipses-outline" size={24} color="white" />} iconBgColor={theme.warning} />
-                    <StatCard label="Total Users" value={stats.totalUsers} icon={<Ionicons name="globe-outline" size={24} color="white" />} iconBgColor={theme.accent} />
+                    <StatCard 
+                        label="Total Subscribers" 
+                        value={stats.activeSubscriptions} 
+                        icon={<Ionicons name="people-outline" size={24} color="white" />} 
+                        iconBgColor={theme.primary} 
+                        trend={`+${analytics.quickAccess.newSubscribersThisMonth}`} 
+                        trendColor={theme.success}
+                        onPress={() => handleNavigation('Plan', ['admin'])} // Admin only
+                    />
+                    {/* --- [CORRECTED] --- */}
+                    <StatCard 
+                        label="Overdue Payments" 
+                        value={analytics.quickAccess.overduePayments} 
+                        icon={<Ionicons name="alert-circle-outline" size={24} color="white" />} 
+                        iconBgColor={theme.danger}
+                        onPress={() => handleNavigation('Billing', ['admin', 'collector'])} // Admin and Collector
+                    />
+                    {/* --- [CORRECTED] --- */}
+                    <StatCard 
+                        label="Open Tickets" 
+                        value={stats.openTickets} 
+                        icon={<Ionicons name="headset-outline" size={24} color="white" />} 
+                        iconBgColor={theme.warning}
+                        onPress={() => handleNavigation('Tickets', ['admin', 'field_agent'])} // Admin and Field Agent
+                    />
+                    <StatCard 
+                        label="Total Users" 
+                        value={stats.totalUsers} 
+                        icon={<Ionicons name="globe-outline" size={24} color="white" />} 
+                        iconBgColor={theme.accent}
+                        onPress={() => handleNavigation('UserManagementScreen', ['admin'])} // Admin only
+                    />
                 </View>
                 <MonthlySubscribersBarChart data={analytics.monthlySubscribersByPlan} />
                 <SubscriptionDistributionChart data={analytics.subscriptionDistribution} total={stats.activeSubscriptions} />
@@ -325,25 +398,72 @@ export default function AdminDashboardScreen() {
     );
 }
 
-// --- Styles (No Changes) ---
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
     scrollContainer: { padding: 20, paddingBottom: 40 },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    headerContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-    headerTitle: { fontSize: 26, fontWeight: 'bold', color: theme.text },
-    headerSubtitle: { fontSize: 16, color: theme.textSecondary, marginTop: 2 },
-    avatar: { width: 48, height: 48, borderRadius: 24 },
+    headerContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8, // Adds space between buttons
+    },
+    headerButton: { // Replaces notificationButton for consistency
+        backgroundColor: theme.surface,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: theme.border,
+    },
+    profileContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    avatar: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        marginRight: 12,
+        borderWidth: 2,
+        borderColor: theme.primary,
+    },
+    welcomeText: {
+        fontSize: 16,
+        color: theme.textSecondary,
+    },
+    profileName: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: theme.text,
+    },
+    notificationButton: {
+        backgroundColor: theme.surface,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: theme.border,
+    },
     statsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 12 },
     card: {
         backgroundColor: theme.surface, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 15,
         shadowColor: theme.shadow, shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 1, shadowRadius: 20, elevation: 5, marginBottom: 20,
     },
-    cardTitle: { fontSize: 18, fontWeight: '600', color: theme.text, marginBottom: 16 },
+    // --- [MODIFIED] Style now applies to TouchableOpacity
     statCard: {
         width: '48%', backgroundColor: theme.surface, borderRadius: 16,
-        padding: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center',
+        padding: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', boxShadow: '2px 4px 2px rgba(0,0,0,0.4)'
     },
     statIconContainer: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
     statTextContainer: { flex: 1 },
@@ -395,7 +515,7 @@ const styles = StyleSheet.create({
         height: 40,
         borderRadius: 20,
         marginRight: 12,
-        backgroundColor: '#E8EBF1', // Add a background color for placeholders
+        backgroundColor: '#E8EBF1',
     },
     userName: {
         fontWeight: '600',

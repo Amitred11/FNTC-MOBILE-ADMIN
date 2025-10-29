@@ -1,6 +1,7 @@
 // screens/AdminLoginScreen.js
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, SafeAreaView, KeyboardAvoidingView, Platform, StatusBar } from 'react-native';
+import React, { useState, useEffect } from 'react'; // Import useEffect
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Image, SafeAreaView, KeyboardAvoidingView, Platform, StatusBar } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAlert } from '../../contexts/AlertContext';
@@ -19,6 +20,21 @@ export default function AdminLoginScreen() {
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const [rememberMe, setRememberMe] = useState(true);
 
+    useEffect(() => {
+        const loadRememberedEmail = async () => {
+            try {
+                const rememberedEmail = await AsyncStorage.getItem('rememberedEmail');
+                if (rememberedEmail) {
+                    setEmail(rememberedEmail);
+                    setRememberMe(true);
+                }
+            } catch (error) {
+                console.error("Failed to load remembered email.", error);
+            }
+        };
+        loadRememberedEmail();
+    }, []);
+
     const handleLogin = async () => {
         if (!email || !password) {
             return showAlert("Error", "Please enter both email and password.");
@@ -26,6 +42,11 @@ export default function AdminLoginScreen() {
         setIsLoading(true);
         try {
             await adminLogin(email, password, rememberMe);
+            if (rememberMe) {
+                await AsyncStorage.setItem('rememberedEmail', email);
+            } else {
+                await AsyncStorage.removeItem('rememberedEmail');
+            }
         } catch (error) {
             const errorMessage = error.response?.data?.message || error.message || "An unknown error occurred.";
             showAlert("Login Failed", errorMessage);
@@ -39,7 +60,7 @@ export default function AdminLoginScreen() {
             <StatusBar barStyle="light-content" />
             <View style={styles.header}>
                 <Animatable.View animation="fadeInDown" duration={1000}>
-                    <Ionicons name="shield-half-outline" size={80} color={theme.textOnPrimary} />
+                    <Image source={require('../../assets/logo.png')} style={{ width: 100, height: 100 }} />
                 </Animatable.View>
                 <Animatable.Text animation="fadeInUp" duration={1000} style={styles.headerText}>Admin Portal</Animatable.Text>
             </View>

@@ -1,14 +1,15 @@
-// screens/JobOrderDetailScreen.js
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Modal, FlatList, SafeAreaView, TextInput } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, SafeAreaView, TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useAlert } from '../../contexts/AlertContext';
+import { useAuth } from '../../contexts/AuthContext';
 
-const InfoRow = ({ label, value, theme, icon }) => {
+// --- Reusable Components ---
+
+const InfoRow = ({ label, value, theme, icon, isAddress = false }) => {
     const styles = getStyles(theme);
     return (
         <View style={styles.infoRow}>
@@ -16,355 +17,284 @@ const InfoRow = ({ label, value, theme, icon }) => {
                 <Ionicons name={icon} size={20} color={theme.primary} style={{ marginRight: 10 }} />
                 <Text style={styles.infoRowLabel}>{label}</Text>
             </View>
-            <Text style={styles.infoRowValue} adjustsFontSizeToFit numberOfLines={1}>{value}</Text>
+            <Text style={[styles.infoRowValue, isAddress && styles.addressText]} numberOfLines={isAddress ? 3 : 1}>
+                {value || 'N/A'}
+            </Text>
         </View>
     );
 };
 
+// --- Main Component ---
+
 export default function JobOrderDetailScreen({ route, navigation }) {
-    const jobId = route.params?.jobId;
+    const { jobId } = route.params;
     const { theme } = useTheme();
-    const { user } = useAuth();
-    const { showAlert } = useAlert();
     const styles = getStyles(theme);
+    const { showAlert } = useAlert();
+    const { user } = useAuth(); 
+
     const [job, setJob] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [isUpdating, setIsUpdating] = useState(false);
-    const [isAssignModalVisible, setAssignModalVisible] = useState(false);
-    const [agentList, setAgentList] = useState([]);
-    const [isAgentsLoading, setIsAgentsLoading] = useState(false);
-    const [isArchiveModalVisible, setArchiveModalVisible] = useState(false);
-    const [archiveNote, setArchiveNote] = useState('');
-
-    useEffect(() => {
-        if (!jobId) {
-            showAlert(
-                "Error",
-                "Job ID is missing. Returning to the previous screen.",
-                [{ text: "OK", onPress: () => navigation.goBack() }]
-            );
-        }
-    }, [jobId, navigation]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // State for the status update modal
+    const [isModalVisible, setModalVisible] = useState(false);
+    const [note, setNote] = useState('');
+    const [targetStatus, setTargetStatus] = useState('');
 
     const fetchJobDetails = useCallback(async () => {
-        if (!jobId) return;
+        if (!jobId) {
+            showAlert("Error", "Job ID is missing.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+            return;
+        }
         try {
             const { data } = await api.get(`/admin/job-orders/${jobId}`);
             setJob(data);
             navigation.setOptions({ title: `Job: ${data.type}` });
         } catch (error) {
-            console.error("Failed to fetch job details:", error);
             showAlert("Error", "Could not load job details.", [{ text: "OK", onPress: () => navigation.goBack() }]);
-        }
-    }, [jobId, navigation]);
-
-    useFocusEffect(
-        useCallback(() => {
-            if (jobId) {
-                setIsLoading(true);
-                fetchJobDetails().finally(() => setIsLoading(false));
-            } else {
-                setIsLoading(false);
-            }
-        }, [jobId, fetchJobDetails])
-    );
-
-    const openAssignModal = async () => {
-        setAssignModalVisible(true);
-        setIsAgentsLoading(true);
-        try {
-            const { data: agents } = await api.get('/admin/field-agents');
-            setAgentList(agents);
-        } catch (error) {
-            showAlert("Error", "Could not fetch list of field agents.");
-            setAssignModalVisible(false);
         } finally {
-            setIsAgentsLoading(false);
+            setIsLoading(false);
+            setIsSubmitting(false);
         }
-    };
+    }, [jobId, navigation, showAlert]);
 
-    const handleManualAssign = async (agentId) => {
-        setAssignModalVisible(false);
-        setIsUpdating(true);
-        try {
-            const { data } = await api.put(`/admin/job-orders/${jobId}/assign`, { agentId });
-            await fetchJobDetails();
-            showAlert("Success", data.message);
-        } catch (error) {
-            showAlert("Error", error.response?.data?.message || "Failed to assign job.");
-        } finally {
-            setIsUpdating(false);
-        }
-    };
+    useFocusEffect(useCallback(() => { 
+        setIsLoading(true);
+        fetchJobDetails(); 
+    }, [fetchJobDetails]));
 
-    const handleUpdateStatus = async (status) => {
-        setIsUpdating(true);
-        try {
-            await api.put(`/admin/job-orders/${jobId}/status`, { status });
-            await fetchJobDetails();
-            showAlert("Success", `Job status updated to '${status}'.`);
-        } catch (error) {
-            showAlert("Error", error.response?.data?.message || "Failed to update job status.");
-        } finally {
-            setIsUpdating(false);
-        }
-    };
+    // --- Action Handlers ---
 
-    const handleAcceptJob = async () => {
-        setIsUpdating(true);
+    const handleAccept = async () => {
+        setIsSubmitting(true);
         try {
             await api.put(`/admin/job-orders/${jobId}/accept`);
+            showAlert("Success", "Job has been accepted.");
             await fetchJobDetails();
-            showAlert("Success", "Job has been accepted!");
         } catch (error) {
             showAlert("Error", error.response?.data?.message || "Failed to accept job.");
-        } finally {
-            setIsUpdating(false);
+            setIsSubmitting(false);
         }
     };
 
-    const handleDeclineJob = async () => {
-        setIsUpdating(true);
-        try {
-            await api.put(`/admin/job-orders/${jobId}/decline`);
-            showAlert("Success", "Job declined and returned to queue.", [
-                { text: "OK", onPress: () => navigation.goBack() }
-            ]);
-        } catch (error) {
-            showAlert("Error", error.response?.data?.message || "Failed to decline job.");
-        } finally {
-            setIsUpdating(false);
-        }
+    const handleDecline = async () => {
+        showAlert("Confirm Decline", "Are you sure you want to decline this job? It will be returned to the queue.", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Decline", style: "destructive", onPress: async () => {
+                setIsSubmitting(true);
+                try {
+                    await api.put(`/admin/job-orders/${jobId}/decline`);
+                    showAlert("Job Declined", "The job has been returned to the assignment queue.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+                } catch (error) {
+                    showAlert("Error", error.response?.data?.message || "Failed to decline job.");
+                    setIsSubmitting(false);
+                }
+            }}
+        ]);
     };
 
-    const handleAutoAssign = async () => {
-        setIsUpdating(true);
+    const handleStatusUpdate = async () => {
+        if (!note.trim()) {
+            return showAlert("Note Required", "Please provide a note for this status update.");
+        }
+        setIsSubmitting(true);
         try {
-            const { data } = await api.put(`/admin/job-orders/${jobId}/auto-assign`);
+            const payload = { status: targetStatus, note: note };
+            await api.put(`/admin/job-orders/${jobId}/status`, payload);
+            showAlert("Success", `Job status has been updated to ${targetStatus}.`);
+            setModalVisible(false);
+            setNote('');
             await fetchJobDetails();
-            showAlert("Success", data.message);
         } catch (error) {
-            showAlert("Error", error.response?.data?.message || "Failed to auto-assign job.");
-        } finally {
-            setIsUpdating(false);
+            showAlert("Error", error.response?.data?.message || "Failed to update status.");
+            setIsSubmitting(false);
+        }
+    };
+    
+    const openStatusModal = (status) => {
+        setTargetStatus(status);
+        setModalVisible(true);
+    };
+
+    // --- Render Action Buttons based on Role and Status ---
+
+    const renderActionButtons = () => {
+        if (user?.role !== 'field_agent' || !job) return null;
+
+        switch (job.status) {
+            case 'Pending Acceptance':
+                return (
+                    <View style={styles.actionsContainer}>
+                        <TouchableOpacity style={styles.declineButton} onPress={handleDecline} disabled={isSubmitting}>
+                            <Text style={styles.declineButtonText}>Decline</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.acceptButton} onPress={handleAccept} disabled={isSubmitting}>
+                            {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Accept Job</Text>}
+                        </TouchableOpacity>
+                    </View>
+                );
+            case 'Assigned':
+                return (
+                    <View style={styles.actionsContainer}>
+                        <TouchableOpacity style={styles.fullWidthButton} onPress={() => openStatusModal('In Progress')} disabled={isSubmitting}>
+                           {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Start Work</Text>}
+                        </TouchableOpacity>
+                    </View>
+                );
+            case 'In Progress':
+                return (
+                     <View style={styles.actionsContainer}>
+                        <TouchableOpacity style={styles.secondaryButton} onPress={() => openStatusModal('On Hold')} disabled={isSubmitting}>
+                            <Text style={styles.secondaryButtonText}>On Hold</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.acceptButton} onPress={() => openStatusModal('Completed')} disabled={isSubmitting}>
+                           {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Mark as Completed</Text>}
+                        </TouchableOpacity>
+                    </View>
+                );
+            default:
+                return null;
         }
     };
 
-    const handleCompleteJob = async () => {
-        showAlert(
-            "Confirm Completion",
-            "This will mark the job as complete. This action cannot be undone.",
-            [
-                { text: "Cancel", style: "cancel" },
-                { text: "Confirm Complete", style: "destructive", onPress: () => handleUpdateStatus('Completed') }
-            ]
-        );
-    };
-
-    const handleArchiveJob = async () => {
-        if (!archiveNote.trim()) {
-            showAlert("Note Required", "Please provide a reason or note for archiving.");
-            return;
-        }
-        setIsUpdating(true);
-        setArchiveModalVisible(false);
-        try {
-            const { data } = await api.post(`/admin/job-orders/${jobId}/archive`, { note: archiveNote });
-            showAlert("Success", data.message, [
-                { text: "OK", onPress: () => navigation.goBack() }
-            ]);
-        } catch (error) {
-            showAlert("Error", error.response?.data?.message || "Failed to archive job.");
-        } finally {
-            setIsUpdating(false);
-            setArchiveNote('');
-        }
-    };
-
-    if (!jobId || isLoading) {
+    if (isLoading) {
         return <SafeAreaView style={styles.centered}><ActivityIndicator size="large" color={theme.primary} /></SafeAreaView>;
     }
+
     if (!job) {
-        return <SafeAreaView style={styles.centered}><Text style={styles.emptyText}>Job details not found.</Text></SafeAreaView>;
+        return <SafeAreaView style={styles.centered}><Text style={styles.emptyText}>Job details could not be loaded.</Text></SafeAreaView>;
     }
 
-    const isAgent = user.role === 'field_agent';
-    const isAdmin = user.role === 'admin';
+    const getCustomerInfo = () => {
+        if (job.userId) { 
+            return {
+                name: job.userId.displayName,
+                contact: job.userId.profile?.mobileNumber,
+                address: `${job.userId.profile?.address || ''}, ${job.userId.profile?.city || ''}, ${job.userId.profile?.province || ''}`.trim(),
+            };
+        }
+        if (job.customerDetails) { 
+            return {
+                name: job.customerDetails.name,
+                contact: job.customerDetails.contactNumber,
+                address: job.customerDetails.address,
+            };
+        }
+        return { name: 'Unknown', contact: 'N/A', address: 'N/A' };
+    };
+    
+    const customer = getCustomerInfo();
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
             <ScrollView style={styles.container}>
                 <View style={styles.card}>
-                    <Text style={styles.title}>Job Details</Text>
+                    <Text style={styles.title}>Job Overview</Text>
+                    <InfoRow label="Job ID" value={job.jobId || `JO-${job._id.slice(-6)}`} theme={theme} icon="barcode-outline" />
                     <InfoRow label="Status" value={job.status} theme={theme} icon="information-circle-outline" />
                     <InfoRow label="Type" value={job.type} theme={theme} icon="build-outline" />
-                    <InfoRow label="Customer"   value={job?.userId?.displayName || 'Unknown User'} theme={theme} icon="person-outline" />
                     <InfoRow label="Assigned To" value={job.assignedTo?.displayName || 'Unassigned'} theme={theme} icon="person-circle-outline" />
                     <InfoRow label="Created On" value={new Date(job.createdAt).toLocaleString()} theme={theme} icon="calendar-outline" />
                     {job.completionDate && <InfoRow label="Completed On" value={new Date(job.completionDate).toLocaleString()} theme={theme} icon="checkmark-done-outline" />}
                 </View>
 
                 <View style={styles.card}>
-                    <Text style={styles.title}>Description</Text>
+                    <Text style={styles.title}>Customer Information</Text>
+                    <InfoRow label="Name" value={customer.name} theme={theme} icon="person-outline" />
+                    <InfoRow label="Contact No." value={customer.contact} theme={theme} icon="call-outline" />
+                    <InfoRow label="Address" value={customer.address} theme={theme} icon="location-outline" isAddress={true} />
+                </View>
+
+                <View style={styles.card}>
+                    <Text style={styles.title}>Task Description</Text>
                     <Text style={styles.descriptionText}>{job.description}</Text>
                 </View>
 
-                <View style={styles.actionsContainer}>
-                    {isAgent && job.status === 'Pending Acceptance' && (
-                        <View style={styles.buttonGroup}>
-                            <TouchableOpacity style={[styles.button, styles.declineButton]} onPress={handleDeclineJob} disabled={isUpdating}>
-                                <Ionicons name="close-circle-outline" size={22} color={theme.danger} />
-                                <Text style={[styles.buttonText, { color: theme.danger }]}>Decline</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.button, { backgroundColor: theme.success }]} onPress={handleAcceptJob} disabled={isUpdating}>
-                                <Ionicons name="checkmark-circle-outline" size={22} color="#FFFFFF" />
-                                <Text style={styles.buttonText}>Accept Job</Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-                    {isAgent && job.status === 'Assigned' && (
-                        <TouchableOpacity style={[styles.button, { backgroundColor: theme.accent }]} onPress={() => handleUpdateStatus('In Progress')} disabled={isUpdating}>
-                            <Ionicons name="play-circle-outline" size={22} color="#FFFFFF" />
-                            <Text style={styles.buttonText}>Start Job</Text>
-                        </TouchableOpacity>
-                    )}
-                    {isAgent && job.status === 'In Progress' && (
-                        <TouchableOpacity style={[styles.button, { backgroundColor: theme.success }]} onPress={handleCompleteJob} disabled={isUpdating}>
-                            <Ionicons name="flag-outline" size={22} color="#FFFFFF" />
-                            <Text style={styles.buttonText}>Mark as Completed</Text>
-                        </TouchableOpacity>
-                    )}
-
-                    {isAdmin && job.status === 'Pending Assignment' && (
-                        <View style={styles.buttonGroup}>
-                            <TouchableOpacity style={[styles.button, styles.manualAssignButton]} onPress={openAssignModal} disabled={isUpdating}>
-                                <Ionicons name="person-add-outline" size={22} color={theme.primary} />
-                                <Text style={[styles.buttonText, { color: theme.primary }]}>Manual</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.button, { backgroundColor: theme.primary }]} onPress={handleAutoAssign} disabled={isUpdating}>
-                                <Ionicons name="sparkles-outline" size={22} color="#FFFFFF" />
-                                <Text style={styles.buttonText}>Auto-Assign</Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
-
-                    {isAdmin && job.status === 'Completed' && (
-                        <TouchableOpacity style={[styles.button, { backgroundColor: theme.textSecondary, marginTop: 10 }]} onPress={() => setArchiveModalVisible(true)} disabled={isUpdating}>
-                            <Ionicons name="archive-outline" size={22} color="#FFFFFF" />
-                            <Text style={styles.buttonText}>Archive Job</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
+                 {job.notes?.length > 0 && (
+                    <View style={styles.card}>
+                        <Text style={styles.title}>History & Notes</Text>
+                        {job.notes.map((note, index) => (
+                            <View key={index} style={styles.noteItem}>
+                                <Text style={styles.noteText}>{note.text}</Text>
+                                <Text style={styles.noteAuthor}>- {note.author || 'System'} on {new Date(note.timestamp || Date.now()).toLocaleDateString()}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
             </ScrollView>
+            
+            {renderActionButtons()}
 
-            <Modal animationType="fade" transparent={true} visible={isAssignModalVisible} onRequestClose={() => setAssignModalVisible(false)}>
-                <View style={styles.modalOverlay}>
+            <Modal animationType="fade" transparent={true} visible={isModalVisible} onRequestClose={() => setModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Assign to Field Agent</Text>
-                        {isAgentsLoading ? (
-                            <ActivityIndicator size="large" color={theme.primary} />
-                        ) : (
-                            <FlatList
-                                data={agentList}
-                                keyExtractor={(item) => item._id}
-                                renderItem={({ item }) => (
-                                    <TouchableOpacity style={styles.agentItem} onPress={() => handleManualAssign(item._id)}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                            <Ionicons name="person-circle-outline" size={40} color={theme.primary} style={{ marginRight: 15 }} />
-                                            <View>
-                                                <Text style={styles.agentName}>{item.displayName}</Text>
-                                                <Text style={styles.agentWorkload}>{item.workload} active job{item.workload !== 1 && 's'}</Text>
-                                            </View>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={24} color={theme.textSecondary} />
-                                    </TouchableOpacity>
-                                )}
-                                ListEmptyComponent={<Text style={styles.emptyText}>No available field agents found.</Text>}
-                            />
-                        )}
-                        <TouchableOpacity style={styles.modalCancelButton} onPress={() => setAssignModalVisible(false)}>
-                            <Text style={styles.modalCancelText}>Cancel</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            <Modal animationType="fade" transparent={true} visible={isArchiveModalVisible} onRequestClose={() => setArchiveModalVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Archive Job Order</Text>
-                        <Text style={styles.modalSubtext}>This action is permanent. Please add a concluding note before archiving.</Text>
+                        <Text style={styles.modalTitle}>Update Status to "{targetStatus}"</Text>
+                        <Text style={styles.modalLabel}>Add a note (required)</Text>
                         <TextInput
-                            style={styles.archiveNoteInput}
-                            placeholder="e.g., Archived after annual review."
-                            placeholderTextColor={theme.textSecondary}
-                            value={archiveNote}
-                            onChangeText={setArchiveNote}
+                            style={styles.modalInput}
+                            placeholder="e.g., 'Completed installation successfully.'"
                             multiline
+                            value={note}
+                            onChangeText={setNote}
                         />
-                        <TouchableOpacity style={styles.modalConfirmButton} onPress={handleArchiveJob} disabled={isUpdating}>
-                            <Text style={styles.modalButtonText}>Confirm & Archive</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.modalCancelButton} onPress={() => setArchiveModalVisible(false)}>
-                            <Text style={styles.modalCancelText}>Cancel</Text>
-                        </TouchableOpacity>
+                        <View style={styles.modalActions}>
+                             <TouchableOpacity style={styles.modalCancelButton} onPress={() => setModalVisible(false)}>
+                                <Text style={styles.secondaryButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.modalConfirmButton} onPress={handleStatusUpdate} disabled={isSubmitting}>
+                                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Confirm Update</Text>}
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
         </SafeAreaView>
     );
 }
+
+// --- Styles ---
 
 const getStyles = (theme) => StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background, padding: 15 },
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background },
     card: {
         backgroundColor: theme.surface, borderRadius: 15, padding: 20, marginBottom: 20,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3,
     },
     title: { fontSize: 22, fontWeight: 'bold', color: theme.text, marginBottom: 15, borderBottomWidth: 1, borderBottomColor: theme.border, paddingBottom: 10 },
     descriptionText: { fontSize: 16, color: theme.text, lineHeight: 24 },
     infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
     infoRowLabel: { fontSize: 16, color: theme.textSecondary },
-    infoRowValue: { fontSize: 16, color: theme.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+    infoRowValue: { fontSize: 12, color: theme.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
     emptyText: { color: theme.textSecondary, textAlign: 'center' },
-    actionsContainer: { marginTop: 10, paddingHorizontal: 5, paddingBottom: 20 },
-    buttonGroup: { flexDirection: 'row', gap: 10 },
-    button: {
-        flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 15,
+    addressText: {
+        textAlign: 'right',
+        flexShrink: 1,
     },
-    buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
-    declineButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: theme.danger },
-    manualAssignButton: { backgroundColor: 'transparent', borderWidth: 2, borderColor: theme.primary },
-    modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
-    modalContent: {
-        backgroundColor: theme.surface, borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20,
-        maxHeight: '80%',
-    },
-    modalTitle: { fontSize: 24, fontWeight: 'bold', color: theme.text, marginBottom: 15, textAlign: 'center' },
-    modalSubtext: { fontSize: 15, color: theme.textSecondary, textAlign: 'center', marginBottom: 20, lineHeight: 22 },
-    modalConfirmButton: {
-        backgroundColor: theme.primary,
-        padding: 20, // A larger padding for a primary action button
-        borderRadius: 15,
-        alignItems: 'center', // This is crucial for centering the text
-        marginTop: 20,
-    },
-    modalButtonText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    archiveNoteInput: {
-        backgroundColor: theme.background, color: theme.text, padding: 15, borderRadius: 10,
-        borderWidth: 1, borderColor: theme.border, fontSize: 16, minHeight: 100, textAlignVertical: 'top'
-    },
-    agentItem: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18,
-        borderBottomWidth: 1, borderBottomColor: theme.border,
-    },
-    agentName: { fontSize: 18, color: theme.text, fontWeight: '600' },
-    agentWorkload: { fontSize: 14, color: theme.textSecondary, marginTop: 4 },
-    modalCancelButton: { marginTop: 15, padding: 18, borderRadius: 15, backgroundColor: theme.background, alignItems: 'center' },
-    modalCancelText: { color: theme.text, fontSize: 16, fontWeight: 'bold' },
+    
+    // Action Buttons
+    actionsContainer: { flexDirection: 'row', padding: 15, gap: 10, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface },
+    acceptButton: { flex: 2, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    acceptButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+    declineButton: { flex: 1, backgroundColor: theme.background, padding: 15, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: theme.border },
+    declineButtonText: { color: theme.text, fontSize: 16, fontWeight: 'bold' },
+    fullWidthButton: { flex: 1, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
+    secondaryButton: { flex: 1, backgroundColor: theme.surface, padding: 15, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: theme.border },
+    secondaryButtonText: { color: theme.text, fontSize: 16, fontWeight: 'bold' },
+
+    // Modal Styles
+    modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+    modalContent: { backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.text, marginBottom: 10, textAlign: 'center' },
+    modalLabel: { fontSize: 16, color: theme.textSecondary, marginBottom: 8, marginTop: 10 },
+    modalInput: { backgroundColor: theme.background, color: theme.text, height: 100, borderRadius: 10, borderWidth: 1, borderColor: theme.border, padding: 10, textAlignVertical: 'top' },
+    modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, gap: 10 },
+    modalConfirmButton: { flex: 2, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
+    modalCancelButton: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background, borderRadius: 10, borderWidth: 1, borderColor: theme.border },
+
+    // Note Styles
+    noteItem: { borderBottomWidth: 1, borderBottomColor: theme.border, paddingVertical: 10 },
+    noteText: { fontSize: 15, color: theme.text },
+    noteAuthor: { fontSize: 12, color: theme.textSecondary, textAlign: 'right', fontStyle: 'italic', marginTop: 4 },
 });

@@ -1,123 +1,404 @@
-// screens/AdminJobOrdersScreen.js
-import React, { useState, useCallback, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, SafeAreaView } from 'react-native';
-import { useAuth } from '../../contexts/AuthContext';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, TextInput, TouchableOpacity, Keyboard, RefreshControl, Modal, Switch, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAlert } from '../../contexts/AlertContext';
 
-const JobOrderItem = ({ item, theme, onPress }) => {
+// --- Reusable Components ---
+const StatCard = ({ title, value, color, icon, theme }) => {
     const styles = getStyles(theme);
-    const statusMap = {
-        'Pending Assignment': { icon: 'person-add-outline', color: theme.warning, gradient: ['#FFC107', '#FFA000'] },
-        'Pending Acceptance': { icon: 'hourglass-outline', color: '#4475a7', gradient: ['#85c5f8', '#4475a7'] },
-        'Assigned': { icon: 'navigate-circle-outline', color: theme.primary, gradient: ['#2196F3', '#1976D2'] },
-        'In Progress': { icon: 'construct-outline', color: theme.accent, gradient: ['#FF4081', '#F50057'] },
-        'Completed': { icon: 'checkmark-done-circle-outline', color: theme.success, gradient: ['#4CAF50', '#388E3C'] },
-        'Cancelled': { icon: 'close-circle-outline', color: theme.danger, gradient: ['#F44336', '#D32F2F'] },
-    };
-    const statusInfo = statusMap[item.status] || { icon: 'help-circle-outline', color: theme.textSecondary, gradient: ['#9E9E9E', '#616161'] };
-
+    const backgroundColor = color + '20';
     return (
-        <TouchableOpacity style={styles.itemContainer} onPress={() => onPress(item._id)}>
-            <LinearGradient colors={statusInfo.gradient} style={styles.iconContainer}>
-                <Ionicons name={statusInfo.icon} size={32} color="#FFFFFF" />
-            </LinearGradient>
-            <View style={styles.detailsContainer}>
-                <Text style={styles.itemType}>{item.type}</Text>
-                <Text style={styles.itemDescription} numberOfLines={1}>{item.description}</Text>
-                <View style={styles.footerContainer}>
-                    <Text style={styles.itemDate}>Created: {new Date(item.createdAt).toLocaleDateString()}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: statusInfo.color }]}>
-                        <Text style={styles.statusText}>{item.status}</Text>
-                    </View>
-                </View>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color={theme.textSecondary} />
-        </TouchableOpacity>
+        <View style={[styles.statCard, { backgroundColor }]}>
+            <View style={styles.statIconContainer}><Ionicons name={icon} size={22} color={color} /></View>
+            <Text style={styles.statCardValue}>{value}</Text>
+            <Text style={styles.statCardTitle}>{title}</Text>
+        </View>
     );
 };
 
+const JobOrderCard = ({ item, theme, navigation, onAssignPress, onArchivePress, onDeletePress }) => {
+    const styles = getStyles(theme);
+    const statusStyles = {
+        'Pending Assignment': { backgroundColor: '#FEF3C7', color: '#B45309', icon: 'person-add-outline' },
+        'Pending Acceptance': { backgroundColor: '#FEF9C3', color: '#854D0E', icon: 'help-circle-outline' },
+        'Assigned': { backgroundColor: '#E0E7FF', color: '#4338CA', icon: 'person-circle-outline' },
+        'In Progress': { backgroundColor: '#DBEAFE', color: '#1D4ED8', icon: 'construct-outline' },
+        'On Hold': { backgroundColor: '#F3E8FF', color: '#5B21B6', icon: 'pause-circle-outline' },
+        'Completed': { backgroundColor: '#D1FAE5', color: '#065F46', icon: 'checkmark-done-circle-outline' },
+        'Over Due': { backgroundColor: '#FEE2E2', color: '#B91C1C', icon: 'alert-circle-outline' },
+    };
+    const status = statusStyles[item.status] || { backgroundColor: theme.border, color: theme.textSecondary, icon: 'help-circle-outline' };
+    const customerName = item.userId ? item.userId.displayName : (item.customerDetails?.name || 'N/A');
+
+    return (
+        <View style={styles.card}>
+            <View style={styles.cardHeader}>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.cardJobId}>{item.jobId || `JO-${item._id.slice(-6)}`}</Text>
+                    <Text style={styles.cardCustomerName}>{customerName}</Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: status.backgroundColor }]}>
+                    <Ionicons name={status.icon} size={14} color={status.color} />
+                    <Text style={[styles.statusBadgeText, { color: status.color }]}>{item.status}</Text>
+                </View>
+            </View>
+            <View style={styles.cardInfoRow}><Ionicons name="build-outline" size={16} color={theme.textSecondary} /><Text style={styles.cardInfoText}>Type: {item.type}</Text></View>
+            <View style={styles.cardInfoRow}><Ionicons name="person-circle-outline" size={16} color={theme.textSecondary} /><Text style={styles.cardInfoText}>Assigned: {item.assignedTo?.displayName || 'Unassigned'}</Text></View>
+            <View style={styles.cardActions}>
+                <TouchableOpacity style={styles.actionButtonSecondary} onPress={() => navigation.navigate('JobOrderDetail', { jobId: item._id })}><Text style={styles.actionButtonSecondaryText}>View</Text></TouchableOpacity>
+                {item.status === 'Completed' ? (
+                    <TouchableOpacity style={styles.actionButtonArchive} onPress={() => onArchivePress(item._id)}><Ionicons name="archive-outline" size={18} color={theme.textSecondary} /><Text style={styles.actionButtonArchiveText}>Archive</Text></TouchableOpacity>
+                ) : (
+                    <>
+                        <TouchableOpacity style={styles.actionButtonDelete} onPress={() => onDeletePress(item._id)}>
+                            <Ionicons name="trash-outline" size={18} color={theme.danger} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionButtonPrimary} onPress={() => onAssignPress(item._id)}>
+                            <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
+                            <Text style={styles.actionButtonPrimaryText}>Assign</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
+            </View>
+        </View>
+    );
+};
+
+
+
+// --- Main Dashboard Screen ---
 export default function AdminJobOrdersScreen({ navigation }) {
     const { theme } = useTheme();
     const styles = getStyles(theme);
-    const { user } = useAuth();
-    const { showAlert } = useAlert(); // Use the alert context
-    const [jobOrders, setJobOrders] = useState([]);
+    const { showAlert } = useAlert();
+    
+    // --- STATE MANAGEMENT ---
+    const [stats, setStats] = useState({ active: 0, pending: 0, completed: 0, overdue: 0 });
+    const [masterJobOrders, setMasterJobOrders] = useState([]);
+    const [filteredJobOrders, setFilteredJobOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedTypeFilter, setSelectedTypeFilter] = useState('All Types');
+    
+    // Modals Visibility
+    const [isAddModalVisible, setAddModalVisible] = useState(false);
+    const [isCustomerModalVisible, setCustomerModalVisible] = useState(false);
+    const [isFilterModalVisible, setFilterModalVisible] = useState(false);
+    const [assignState, setAssignState] = useState({ isVisible: false, jobId: null, autoAssign: true, selectedAgent: null });
+    const [agentList, setAgentList] = useState([]);
+    const [isAgentsLoading, setIsAgentsLoading] = useState(false);
+    const initialJobState = { type: '', description: '', customer: null, isWalkIn: false, walkInName: '', walkInContact: '', autoAssign: true, selectedAgent: null };
+    const [newJobData, setNewJobData] = useState(initialJobState);
+    const [customerList, setCustomerList] = useState([]);
+    const [customerSearch, setCustomerSearch] = useState('');
+    const [isJobTypeDropdownVisible, setJobTypeDropdownVisible] = useState(false);
+    const [isAgentDropdownVisible, setAgentDropdownVisible] = useState(false);
+    
+    // Constants
+    const JOB_TYPES = useMemo(() => ['All Types', 'Installation', 'Repair', 'Maintenance', 'Upgrade', 'Disconnection', 'Retrieval'], []);
+    const NEW_JOB_TYPES = useMemo(() => JOB_TYPES.filter(t => t !== 'All Types'), [JOB_TYPES]);
 
-    useLayoutEffect(() => {
-        if (user.role === 'admin' ) {
-            navigation.setOptions({
-                headerRight: () => (
-                    <TouchableOpacity
-                        onPress={() => navigation.navigate('AdminArchivedJobs')}
-                        style={{ marginRight: 15, padding: 5 }}
-                    >
-                        <Ionicons name="archive-outline" size={28} color={theme.textOnPrimary} />
-                    </TouchableOpacity>
-                ),
-            });
-        }
-    }, [navigation, user.role, theme]);
-
-    const fetchJobOrders = useCallback(async () => {
+    // --- DATA FETCHING & FILTERING ---
+    const fetchData = useCallback(async (isRefreshing = false) => {
+        if (!isRefreshing) setIsLoading(true);
         try {
-            const endpoint = user.role === 'admin' ? '/admin/job-orders' : '/admin/job-orders/my-tasks';
-            const { data } = await api.get(endpoint);
-            setJobOrders(data);
-        } catch (error) {
-            console.error("Failed to fetch job orders:", error);
-            showAlert("Error", "Could not fetch job orders."); // Replace Alert.alert with showAlert
-        } finally {
-            setIsLoading(false);
+            const { data } = await api.get('/admin/job-orders');
+            setStats({
+                active: data.filter(j => j.status !== 'Completed' && j.status !== 'Archived').length,
+                pending: data.filter(j => j.status === 'Pending Assignment').length,
+                completed: data.filter(j => j.status === 'Completed').length,
+                overdue: data.filter(j => j.status === 'Over Due').length,
+            });
+            setMasterJobOrders(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+        } catch (error) {}
+        finally { setIsLoading(false); }
+    }, []);
+
+    useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+    useEffect(() => {
+        let jobs = [...masterJobOrders];
+        if (searchQuery) {
+            const lowercasedQuery = searchQuery.toLowerCase();
+            jobs = jobs.filter(job =>
+                (job.userId?.displayName || job.customerDetails?.name || '').toLowerCase().includes(lowercasedQuery) ||
+                (job.jobId || '').toLowerCase().includes(lowercasedQuery) ||
+                (job._id || '').toLowerCase().includes(lowercasedQuery.replace('jo-', ''))
+            );
         }
-    }, [user.role, showAlert]); // Add showAlert to dependency array
+        if (selectedTypeFilter !== 'All Types') {
+            jobs = jobs.filter(job => job.type === selectedTypeFilter);
+        }
+        setFilteredJobOrders(jobs);
+    }, [searchQuery, selectedTypeFilter, masterJobOrders]);
 
-    useFocusEffect(useCallback(() => {
-        setIsLoading(true);
-        fetchJobOrders();
-    }, [fetchJobOrders]));
+    // --- HANDLERS ---
+    const handleOpenAddModal = async () => {
+        setNewJobData(initialJobState); 
+        setCustomerSearch('');
+        setJobTypeDropdownVisible(false);
+        setAgentDropdownVisible(false);
+        setAddModalVisible(true);
+        setIsAgentsLoading(true);
+        try {
+            const [customersRes, agentsRes] = await Promise.all([
+                api.get('/admin/subscribers/list'),
+                api.get('/admin/field-agents')
+            ]);
+            setCustomerList(customersRes.data);
+            setAgentList(agentsRes.data);
+        } catch (error) {
+            showAlert("Error", "Could not fetch necessary data for creating a job.");
+            setAddModalVisible(false);
+        } finally {
+            setIsAgentsLoading(false);
+        }
+    };
 
-    if (isLoading) {
-        return <View style={styles.centered}><ActivityIndicator size="large" color={theme.primary} /></View>;
-    }
+    const isFormValid = useMemo(() => {
+        const { type, description, isWalkIn, walkInName, customer, autoAssign, selectedAgent } = newJobData;
+        if (!type || !description) return false;
+        const hasCustomer = isWalkIn ? !!walkInName : !!customer;
+        if (!hasCustomer) return false;
+        const hasAgent = autoAssign || !!selectedAgent;
+        return hasAgent;
+    }, [newJobData]);
 
+    const handleCreateAndAssignJob = async () => {
+        if (!isFormValid) {
+            return showAlert("Missing Information", "Please fill out all required fields, including technician assignment.");
+        }
+        setIsSubmitting(true);
+        const { type, description, customer, isWalkIn, walkInName, walkInContact, autoAssign, selectedAgent } = newJobData;
+        const payload = {
+            type, description, autoAssign,
+            agentId: !autoAssign ? selectedAgent?._id : null,
+            customerDetails: isWalkIn ? { name: walkInName, contact: walkInContact } : null,
+            userId: !isWalkIn ? customer?._id : null,
+        };
+
+        try {
+            const { data } = await api.post('/admin/job-orders', payload);
+            showAlert("Success", data.message || "Job order created successfully.");
+            setAddModalVisible(false);
+            await fetchData(true); 
+        } catch (error) {
+            showAlert("Error", error.response?.data?.message || "Failed to create job.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    const handleOpenAssignModal = async (jobId) => {
+        setAssignState({ isVisible: true, jobId, autoAssign: true, selectedAgent: null });
+        setAgentDropdownVisible(false);
+        setIsAgentsLoading(true);
+        try {
+            const { data } = await api.get('/admin/field-agents');
+            setAgentList(data);
+        } catch (error) {
+            showAlert("Error", "Could not fetch technicians.");
+            setAssignState(prev => ({ ...prev, isVisible: false }));
+        } finally {
+            setIsAgentsLoading(false);
+        }
+    };
+
+    const handleConfirmAssignment = async () => {
+        const { jobId, autoAssign, selectedAgent } = assignState;
+        if (!autoAssign && !selectedAgent) {
+            return showAlert("Selection Required", "Please select a technician or use auto-assign.");
+        }
+        setIsSubmitting(true);
+        try {
+            const url = autoAssign ? `/admin/job-orders/${jobId}/auto-assign` : `/admin/job-orders/${jobId}/assign`;
+            const payload = autoAssign ? {} : { agentId: selectedAgent._id };
+            const { data } = await api.put(url, payload);
+            showAlert("Success", data.message);
+            setAssignState({ isVisible: false, jobId: null, autoAssign: true, selectedAgent: null });
+            await fetchData(true);
+        } catch (error) {
+            showAlert("Error", error.response?.data?.message || "Assignment failed.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDelete = (jobId) => {
+        showAlert("Confirm Delete", "Are you sure you want to permanently delete this job? This action cannot be undone.", [
+            { text: "Cancel", style: "cancel" },
+            { 
+                text: "Delete", 
+                style: "destructive", 
+                onPress: async () => {
+                    try {
+                        await api.delete(`/admin/job-orders/${jobId}`);
+                        showAlert("Success", "Job has been deleted.");
+                        await fetchData(true); 
+                    } catch (error) { 
+                    }
+                }
+            }
+        ]);
+    };
+
+    const handleArchive = (jobId) => {
+        showAlert("Confirm Archive", "Are you sure you want to archive this job?", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Archive", style: "destructive", onPress: async () => {
+                try {
+                    await api.post(`/admin/job-orders/${jobId}/archive`);
+                    showAlert("Success", "Job has been archived.");
+                    await fetchData(true);
+                } catch (error) { showAlert("Error", "Failed to archive job."); }
+            }}
+        ]);
+    };
+
+    const filteredCustomers = useMemo(() => 
+        customerList.filter(c => c.displayName.toLowerCase().includes(customerSearch.toLowerCase())),
+    [customerList, customerSearch]);
+
+    // --- RENDER ---
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}>
             <FlatList
-                data={jobOrders}
+                ListHeaderComponent={
+                    <View style={styles.listHeaderContainer}>
+                        <View style={styles.statsContainer}><StatCard title="Active Jobs" value={stats.active} color="#3B82F6" icon="file-tray-stacked-outline" theme={theme}/><StatCard title="Pending" value={stats.pending} color="#FBBF24" icon="hourglass-outline" theme={theme}/><StatCard title="Completed" value={stats.completed} color="#10B981" icon="checkmark-done-outline" theme={theme}/><StatCard title="Overdue" value={stats.overdue} color="#EF4444" icon="alert-circle-outline" theme={theme}/></View>
+                        <View style={styles.toolbar}><View style={styles.searchRow}><View style={styles.searchInputContainer}><Ionicons name="search" size={20} color={theme.textSecondary} /><TextInput style={styles.searchInput} placeholder="Search by name, ID..." value={searchQuery} onChangeText={setSearchQuery} /></View><TouchableOpacity style={styles.iconButton} onPress={() => setFilterModalVisible(true)}><Ionicons name="filter" size={24} color={theme.primary} /></TouchableOpacity></View><View style={styles.buttonsRow}><TouchableOpacity style={styles.toolbarButton} onPress={() => navigation.navigate('AdminArchivedJobs')}><Ionicons name="archive-outline" size={22} color={theme.textSecondary} /><Text style={styles.toolbarButtonText}>Archive</Text></TouchableOpacity><TouchableOpacity style={styles.createButton} onPress={handleOpenAddModal}><Ionicons name="add" size={20} color="#FFFFFF" /><Text style={styles.createButtonText}>New Job Order</Text></TouchableOpacity></View></View>
+                    </View>
+                }
+                data={filteredJobOrders}
+                renderItem={({item}) => <JobOrderCard item={item} theme={theme} navigation={navigation} onAssignPress={handleOpenAssignModal} onArchivePress={handleArchive} onDeletePress={handleDelete} />}
                 keyExtractor={(item) => item._id}
-                renderItem={({ item }) => <JobOrderItem item={item} theme={theme} onPress={(jobId) => navigation.navigate('JobOrderDetail', { jobId })} />}
-                ListEmptyComponent={<View style={styles.centered}><Text style={styles.emptyText}>No job orders found.</Text></View>}
-                contentContainerStyle={{ padding: 15 }}
-                refreshControl={<RefreshControl refreshing={isLoading} onRefresh={fetchJobOrders} tintColor={theme.primary} />}
+                contentContainerStyle={styles.listContentContainer}
+                ListEmptyComponent={!isLoading && <View style={styles.emptyContainer}><Ionicons name="file-tray-outline" size={60} color={theme.border} /><Text style={styles.emptyText}>No job orders found.</Text></View>}
+                refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => fetchData(true)} tintColor={theme.primary} />}
             />
+
+            <Modal animationType="fade" transparent={true} visible={isFilterModalVisible} onRequestClose={() => setFilterModalVisible(false)}><TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPressOut={() => setFilterModalVisible(false)}><TouchableOpacity activeOpacity={1} style={styles.modalView}><Text style={styles.modalTitle}>Filter by Type</Text>{JOB_TYPES.map(type => (<TouchableOpacity key={type} style={styles.filterItem} onPress={() => { setSelectedTypeFilter(type); setFilterModalVisible(false); }}><Text style={[styles.filterItemText, selectedTypeFilter === type && styles.filterItemTextSelected]}>{type}</Text>{selectedTypeFilter === type && <Ionicons name="checkmark-circle" size={22} color={theme.primary} />}</TouchableOpacity>))}</TouchableOpacity></TouchableOpacity></Modal>
+            <Modal animationType="fade" transparent={true} visible={assignState.isVisible} onRequestClose={() => setAssignState(prev => ({...prev, isVisible: false}))}><TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPressOut={() => setAssignState(prev => ({...prev, isVisible: false}))}><TouchableOpacity activeOpacity={1} style={styles.modalView}><Text style={{ fontSize: 20, fontWeight: 'bold', color: theme.text}}>Assign Technician</Text><View style={styles.toggleContainer}><Text style={styles.label}>Auto Assign (Recommended)</Text><Switch value={assignState.autoAssign} onValueChange={(value) => setAssignState(prev => ({...prev, autoAssign: value, selectedAgent: null}))} trackColor={{ false: theme.border, true: theme.primary }} thumbColor={"#ffffff"}/></View><Text style={styles.label}>Manual Assignment</Text><TouchableOpacity style={[styles.inputSelector, assignState.autoAssign && styles.disabledInput]} onPress={() => { if (!assignState.autoAssign) setAgentDropdownVisible(!isAgentDropdownVisible)}} disabled={assignState.autoAssign}><Text style={[styles.selectorText, !assignState.selectedAgent && {color: theme.placeholder}]}>{assignState.selectedAgent?.displayName || 'Select Technician'}</Text><Ionicons name="chevron-down" size={20} color={theme.textSecondary} /></TouchableOpacity>{isAgentDropdownVisible && (<View style={styles.formDropdownContainer}><ScrollView nestedScrollEnabled={true}>{isAgentsLoading ? <ActivityIndicator/> : agentList.map(agent => (<TouchableOpacity key={agent._id} style={styles.dropdownItem} onPress={() => { setAssignState(prev => ({...prev, selectedAgent: agent})); setAgentDropdownVisible(false); }}><Text style={styles.dropdownItemText}>{agent.displayName}</Text></TouchableOpacity>))}</ScrollView></View>)}<View style={styles.modalActions}><TouchableOpacity style={[styles.modalConfirmButton, isSubmitting && styles.disabledInput]} onPress={handleConfirmAssignment} disabled={isSubmitting}>{isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.modalButtonText}>Confirm Assignment</Text>}</TouchableOpacity></View></TouchableOpacity></TouchableOpacity></Modal>
+                
+            <Modal animationType="fade" transparent={true} visible={isAddModalVisible} onRequestClose={() => setAddModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+                    <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setAddModalVisible(false)} />
+                    <TouchableOpacity activeOpacity={1} style={styles.centeredModalView}>
+                        <View style={styles.modalHeader}><Text style={styles.modalTitle}>Create Job Order</Text><TouchableOpacity onPress={() => setAddModalVisible(false)}><Ionicons name="close-circle" size={28} color={theme.textOnPrimary} /></TouchableOpacity></View>
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollView}>
+                            <Text style={styles.label}>Job Type*</Text>
+                            <TouchableOpacity style={styles.inputSelector} onPress={() => { setJobTypeDropdownVisible(!isJobTypeDropdownVisible); Keyboard.dismiss(); }}><Text style={[styles.selectorText, !newJobData.type && {color: theme.placeholder}]}>{newJobData.type || 'Select a job type'}</Text><Ionicons name="chevron-down" size={20} color={theme.textSecondary} /></TouchableOpacity>
+                            {isJobTypeDropdownVisible && (<View style={styles.formDropdownContainer}><ScrollView nestedScrollEnabled={true}>{NEW_JOB_TYPES.map(type => (<TouchableOpacity key={type} style={styles.dropdownItem} onPress={() => { setNewJobData(prev => ({...prev, type})); setJobTypeDropdownVisible(false); }}><Text style={styles.dropdownItemText}>{type}</Text></TouchableOpacity>))}</ScrollView></View>)}
+                            <View style={styles.toggleContainer}><Text style={styles.label}>Walk-in Customer</Text><Switch value={newJobData.isWalkIn} onValueChange={(value) => setNewJobData(prev => ({...prev, isWalkIn: value, customer: null}))} trackColor={{ false: theme.border, true: theme.primary }} thumbColor={"#ffffff"}/></View>
+                            {newJobData.isWalkIn ? (<><Text style={styles.label}>Customer Name*</Text><TextInput style={styles.input} placeholder="Enter full name" value={newJobData.walkInName} onChangeText={text => setNewJobData(prev => ({...prev, walkInName: text}))} /><Text style={styles.label}>Contact (Optional)</Text><TextInput style={styles.input} placeholder="Enter phone or email" value={newJobData.walkInContact} onChangeText={text => setNewJobData(prev => ({...prev, walkInContact: text}))} /></>) : (<><Text style={styles.label}>Subscriber*</Text><TouchableOpacity style={styles.inputSelector} onPress={() => setCustomerModalVisible(true)}><Text style={[styles.selectorText, !newJobData.customer && {color: theme.placeholder}]}>{newJobData.customer?.displayName || 'Select a subscriber'}</Text><Ionicons name="search-outline" size={20} color={theme.textSecondary} /></TouchableOpacity></>)}
+                            <Text style={styles.label}>Description*</Text>
+                            <TextInput style={[styles.input, styles.textArea]} placeholder="Add job details, address, reported issues..." multiline value={newJobData.description} onChangeText={text => setNewJobData(prev => ({...prev, description: text}))} />
+                            
+                            {/* --- ASSIGNMENT SECTION --- */}
+                            <View style={styles.divider} />
+                            <Text style={styles.modalSectionTitle}>Assign Technician</Text>
+                            <View style={styles.toggleContainer}><Text style={styles.label}>Auto Assign Technician</Text><Switch value={newJobData.autoAssign} onValueChange={(value) => setNewJobData(prev => ({...prev, autoAssign: value, selectedAgent: null}))} trackColor={{ false: theme.border, true: theme.primary }} thumbColor={"#ffffff"}/></View>
+                            <TouchableOpacity style={[styles.inputSelector, newJobData.autoAssign && styles.disabledInput]} onPress={() => { if (!newJobData.autoAssign) setAgentDropdownVisible(!isAgentDropdownVisible)}} disabled={newJobData.autoAssign}><Text style={[styles.selectorText, !newJobData.selectedAgent && {color: theme.placeholder}]}>{newJobData.selectedAgent?.displayName || 'Select Technician'}</Text><Ionicons name="chevron-down" size={20} color={theme.textSecondary} /></TouchableOpacity>
+                            {isAgentDropdownVisible && (<View style={styles.formDropdownContainer}><ScrollView nestedScrollEnabled={true}>{isAgentsLoading ? <ActivityIndicator style={{marginVertical: 10}}/> : agentList.map(agent => (<TouchableOpacity key={agent._id} style={styles.dropdownItem} onPress={() => { setNewJobData(prev => ({...prev, selectedAgent: agent})); setAgentDropdownVisible(false); }}><Text style={styles.dropdownItemText}>{agent.displayName}</Text></TouchableOpacity>))}</ScrollView></View>)}
+                            
+                            {/* --- ACTIONS --- */}
+                            <View style={styles.modalActions}><TouchableOpacity style={[styles.modalConfirmButton, (!isFormValid || isSubmitting) && styles.disabledInput]} onPress={handleCreateAndAssignJob} disabled={!isFormValid || isSubmitting}>{isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.modalButtonText}>Create Job</Text>}</TouchableOpacity></View>
+                        </ScrollView>
+                    </TouchableOpacity>
+                </KeyboardAvoidingView>
+            </Modal>
+            
+            {/* Customer Selection Modal */}
+            <Modal animationType="slide" visible={isCustomerModalVisible} onRequestClose={() => setCustomerModalVisible(false)}><SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}><View style={styles.customerModalContainer}><View style={styles.modalHeader}><Text style={styles.modalTitle}>Select Subscriber</Text><TouchableOpacity onPress={() => setCustomerModalVisible(false)}><Ionicons name="close-circle" size={28} color={theme.textSecondary} /></TouchableOpacity></View><View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: theme.border}}><Ionicons name="search" size={20} color={theme.textSecondary} /><TextInput style={styles.searchInput} placeholder="Search subscribers..." value={customerSearch} onChangeText={setCustomerSearch} /></View><FlatList data={filteredCustomers} keyExtractor={(item) => item._id} renderItem={({item}) => (<TouchableOpacity style={styles.customerItem} onPress={() => { setNewJobData(prev => ({...prev, customer: item})); setCustomerModalVisible(false); }}><View><Text style={styles.customerName}>{item.displayName}</Text><Text style={styles.customerEmail}>{item.email}</Text></View><Ionicons name="chevron-forward" size={24} color={theme.textSecondary} /></TouchableOpacity>)} ListEmptyComponent={<Text style={styles.emptyTextSmall}>No subscribers found.</Text>}/></View></SafeAreaView></Modal>
         </SafeAreaView>
     );
 }
 
+// --- Styles ---
 const getStyles = (theme) => StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.background },
-    centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    itemContainer: {
-        backgroundColor: theme.surface, flexDirection: 'row', alignItems: 'center', padding: 15,
-        borderRadius: 15, marginBottom: 15, shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5,
+    safeArea: { flex: 1, backgroundColor: theme.background },
+    listHeaderContainer: { paddingHorizontal: 16, paddingTop: 10 },
+    listContentContainer: { paddingBottom: 24, paddingHorizontal: 16 },
+    statsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+    statCard: { width: '48.5%', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: theme.border },
+    statIconContainer: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+    statCardValue: { color: theme.text, fontSize: 26, fontWeight: 'bold' },
+    statCardTitle: { color: theme.textSecondary, fontSize: 13, marginTop: 2 },
+    toolbar: { marginVertical: 10, gap: 12 },
+    searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    searchInputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 10, paddingHorizontal: 12, borderWidth: 1, borderColor: theme.border },
+    searchInput: { flex: 1, height: 48, marginLeft: 8, color: theme.text, fontSize: 16 },
+    iconButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border },
+    buttonsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+    toolbarButton: { flex: 1, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.surface, borderRadius: 10, height: 48, borderWidth: 1, borderColor: theme.border },
+    toolbarButtonText: { color: theme.textSecondary, fontWeight: '600' },
+    createButton: { flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.primary, borderRadius: 10, height: 48, elevation: 2, shadowColor: theme.primary },
+    createButtonText: { color: '#FFFFFF', fontWeight: 'bold', marginLeft: 8 },
+    
+    dropdownItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: theme.border },
+    dropdownItemText: { fontSize: 16, color: theme.text },
+
+    card: { backgroundColor: theme.surface, borderRadius: 14, marginBottom: 12, borderWidth: 1, borderColor: theme.border, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.border },
+    cardJobId: { fontSize: 13, color: theme.textSecondary, fontWeight: '500' },
+    cardCustomerName: { fontSize: 18, fontWeight: 'bold', color: theme.text, marginTop: 4 },
+    statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+    statusBadgeText: { fontWeight: 'bold', fontSize: 12, marginLeft: 5 },
+    cardInfoRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12 },
+    cardInfoText: { color: theme.text, fontSize: 14, marginLeft: 8 },
+    cardActions: { flexDirection: 'row', justifyContent: 'flex-end', padding: 16, paddingTop: 20, gap: 10 },
+    actionButtonSecondary: { paddingHorizontal: 16, height: 40, justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: theme.border },
+    actionButtonSecondaryText: { color: theme.text, fontWeight: '600' },
+    actionButtonPrimary: { paddingHorizontal: 16, height: 40, flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', borderRadius: 8, backgroundColor: theme.primary },
+    actionButtonPrimaryText: { color: '#FFFFFF', fontWeight: '600' },
+    actionButtonArchive: { paddingHorizontal: 16, height: 40, flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: theme.border },
+    actionButtonArchiveText: { color: theme.textSecondary, fontWeight: '600' },
+    emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 20 },
+    emptyText: { textAlign: 'center', color: theme.textSecondary, fontSize: 16, marginTop: 10 },
+    emptyTextSmall: { textAlign: 'center', color: theme.textSecondary, fontSize: 14, padding: 20 },
+    actionButtonDelete: {
+        paddingHorizontal: 16,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.danger,
+        backgroundColor: theme.danger + '1A', 
     },
-    iconContainer: {
-        width: 60, height: 60, borderRadius: 30, justifyContent: 'center',
-        alignItems: 'center', marginRight: 15,
-    },
-    detailsContainer: { flex: 1 },
-    itemType: { fontSize: 18, fontWeight: 'bold', color: theme.text },
-    itemDescription: { fontSize: 14, color: theme.textSecondary, marginVertical: 4 },
-    footerContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-    itemDate: { fontSize: 12, color: theme.textSecondary, fontStyle: 'italic' },
-    statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, left: 12 },
-    statusText: { color: '#FFFFFF', fontSize: 9, fontWeight: 'bold' },
-    emptyText: { textAlign: 'center', color: theme.textSecondary, fontSize: 16 },
+    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
+    modalView: { width: '90%', maxHeight: '60%', backgroundColor: theme.surface, borderRadius: 20, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+    centeredModalView: { width: '90%', maxHeight: '85%', backgroundColor: theme.surface, borderRadius: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },    
+    modalHeader: { flexDirection: 'row', backgroundColor: theme.primary, justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: theme.border, borderRadius: 15 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.textOnPrimary },
+    label: { fontSize: 14, color: theme.textSecondary, fontWeight: '600', marginTop: 15, marginBottom: 8 },
+    input: { backgroundColor: theme.background, color: theme.text, paddingHorizontal: 15, height: 50, borderRadius: 10, borderWidth: 1, borderColor: theme.border, fontSize: 16 },
+    inputSelector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: theme.background, paddingHorizontal: 15, height: 50, borderRadius: 10, borderWidth: 1, borderColor: theme.border },
+    selectorText: { fontSize: 16, color: theme.text },
+    textArea: { height: 120, textAlignVertical: 'top', paddingTop: 15 },
+    formDropdownContainer: { backgroundColor: theme.background, borderRadius: 10, borderWidth: 1, borderColor: theme.border, marginTop: 4, maxHeight: 200 },
+    formScrollView: { paddingHorizontal: 15 },
+    modalActions: { paddingTop: 20, paddingBottom: 20, },
+    modalConfirmButton: { paddingVertical: 15, borderRadius: 12, backgroundColor: theme.primary, alignItems: 'center' },
+    modalButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+    toggleContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 5, },
+    disabledInput: { backgroundColor: theme.border, opacity: 0.7 },
+    
+    filterItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: theme.border },
+    filterItemText: { fontSize: 16, color: theme.text },
+    filterItemTextSelected: { color: theme.primary, fontWeight: 'bold' },
+    
+    customerModalContainer: { flex: 1, backgroundColor: theme.background },
+    customerItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: theme.border },
+    customerName: { fontSize: 16, color: theme.text, fontWeight: '600' },
+    customerEmail: { fontSize: 13, color: theme.textSecondary },
+    
+    // [NEW] Styles for combined modal
+    divider: { height: 1, backgroundColor: theme.border, marginVertical: 20 },
+    modalSectionTitle: { fontSize: 16, fontWeight: 'bold', color: theme.text, marginBottom: 10, textAlign: 'center' },
 });

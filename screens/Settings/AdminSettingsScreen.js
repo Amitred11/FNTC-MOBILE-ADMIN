@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAlert } from '../../contexts/AlertContext'; 
 import { Ionicons } from '@expo/vector-icons';
 
-// --- Reusable Components (Unchanged) ---
+// --- Reusable Components  ---
 const SettingsMenuItem = ({ icon, label, onPress, isLast = false }) => {
     const { theme } = useTheme();
     const styles = getStyles(theme);
@@ -59,7 +59,6 @@ export default function AdminSettingsScreen({ navigation }) {
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContainer}>
-                {/* Profile Header */}
                 <View style={styles.profileHeader}>
                     <Image
                         source={user.photoUrl ? { uri: user.photoUrl } : require('../../assets/images/default-avatar.jpg')}
@@ -71,7 +70,6 @@ export default function AdminSettingsScreen({ navigation }) {
                     </View>
                 </View>
 
-                {/* Settings Menu */}
                 <SettingsGroup title="GENERAL">
                     <SettingsMenuItem
                         icon="person-circle-outline"
@@ -81,7 +79,6 @@ export default function AdminSettingsScreen({ navigation }) {
                     />
                 </SettingsGroup>
 
-                {/* ✅ ADDED: New Help & Support Section */}
                 <SettingsGroup title="HELP & SUPPORT">
                     <SettingsMenuItem
                         icon="book-outline"
@@ -117,7 +114,6 @@ export default function AdminSettingsScreen({ navigation }) {
                     </SettingsGroup>
                 )}
 
-                {/* Logout Button */}
                 <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
                     <Ionicons name="log-out-outline" size={24} color={theme.danger} />
                     <Text style={styles.logoutButtonText}>Logout</Text>
@@ -127,7 +123,7 @@ export default function AdminSettingsScreen({ navigation }) {
     );
 }
 
-// --- Styles (Unchanged) ---
+// --- Styles ---
 const getStyles = (theme) => StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F7F8FA' },
     scrollContainer: { paddingVertical: 20 },

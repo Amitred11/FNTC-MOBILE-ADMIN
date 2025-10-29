@@ -1,4 +1,5 @@
 // screens/AdminConfigScreen.js
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TextInput, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -44,7 +45,7 @@ export default function AdminConfigScreen() {
 
     const [config, setConfig] = useState({
         emailFromName: '', emailFromAddress: '', sendgridApiKey: '',
-        xenditApiKey: ''
+        xenditApiKey: '', xenditCallbackToken: '', xenditTransactionFee: '0'
     });
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -54,7 +55,7 @@ export default function AdminConfigScreen() {
         setIsLoading(true);
         try {
             const { data } = await api.get('/admin/config');
-            setConfig(data);
+            setConfig(prevConfig => ({ ...prevConfig, ...data, xenditTransactionFee: data.xenditTransactionFee?.toString() || '0' }));
         } catch (error) {
             showAlert("Error", "Could not fetch current app configuration.");
         } finally {
@@ -66,7 +67,6 @@ export default function AdminConfigScreen() {
 
     const handleTextChange = (field, text) => {
         setConfig(prev => ({ ...prev, [field]: text }));
-        // Clear the error for this field when the user starts typing
         if (errors[field]) {
             setErrors(prev => {
                 const newErrors = { ...prev };
@@ -78,17 +78,19 @@ export default function AdminConfigScreen() {
 
     const handleSaveConfig = async () => {
         setIsSaving(true);
-        setErrors({}); // Clear previous errors
+        setErrors({});
         try {
-            await api.put('/admin/config', config);
+            const payload = {
+                ...config,
+                xenditTransactionFee: parseFloat(config.xenditTransactionFee) || 0,
+            };
+            await api.put('/admin/config', payload);
             showAlert("Success", "Configuration has been updated successfully.");
             await fetchConfig(); 
         } catch (error) {
             if (error.response && error.response.status === 422 && error.response.data.errors) {
-                // API returned validation errors
                 setErrors(error.response.data.errors);
             } else {
-                // Generic error
                 showAlert("Error", error.response?.data?.message || "Failed to update configuration.");
             }
         } finally {
@@ -116,9 +118,8 @@ export default function AdminConfigScreen() {
                     <ConfigInput label="Email 'From' Address" value={config.emailFromAddress} onChangeText={(text) => handleTextChange('emailFromAddress', text)} placeholder="e.g., no-reply@fibear.com" keyboardType="email-address" autoCapitalize="none" error={errors.emailFromAddress} />
                 </View>
 
-
                 <View style={styles.configCard}>
-                    <Text style={styles.cardTitle}>API Keys</Text>
+                    <Text style={styles.cardTitle}>API Keys & Fees</Text>
                     
                     <InfoNote text="Get this key from your SendGrid account under Settings > API Keys. Create a key with 'Full Access' permissions." />
                     <ConfigInput label="SendGrid API Key" value={config.sendgridApiKey} onChangeText={(text) => handleTextChange('sendgridApiKey', text)} placeholder="Enter new key to change" secureTextEntry error={errors.sendgridApiKey} />
@@ -128,7 +129,29 @@ export default function AdminConfigScreen() {
                     <InfoNote text="Get this key from your Xendit Dashboard under Settings > API Keys. Generate a secret key with 'Write' permissions for Money-In and Money-Out." />
                     <ConfigInput label="Xendit API Key" value={config.xenditApiKey} onChangeText={(text) => handleTextChange('xenditApiKey', text)} placeholder="Enter new key to change" secureTextEntry error={errors.xenditApiKey} />
                     
-                    {/* ✅ REMOVED: Semaphore API Key input */}
+                    <View style={styles.separator} />
+
+                    <InfoNote text="Set this in your Xendit Dashboard under Webhooks. This token is used to verify that incoming webhook requests are genuinely from Xendit." />
+                    <ConfigInput 
+                        label="Xendit Callback Token" 
+                        value={config.xenditCallbackToken} 
+                        onChangeText={(text) => handleTextChange('xenditCallbackToken', text)} 
+                        placeholder="Enter new token to change" 
+                        secureTextEntry 
+                        error={errors.xenditCallbackToken} 
+                    />
+
+                    <View style={styles.separator} />
+
+                    <InfoNote text="Enter a flat amount to be added to each Xendit online payment to cover processing fees. Set to 0 to disable." />
+                    <ConfigInput 
+                        label="Xendit Transaction Fee (PHP)" 
+                        value={config.xenditTransactionFee} 
+                        onChangeText={(text) => handleTextChange('xenditTransactionFee', text)} 
+                        placeholder="e.g., 15.00" 
+                        keyboardType="numeric" 
+                        error={errors.xenditTransactionFee} 
+                    />
                 </View>
             </ScrollView>
             <View style={styles.footer}>
@@ -145,7 +168,6 @@ const getStyles = (theme) => StyleSheet.create({
     centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F7F8FA' },
     scrollContainer: { padding: 16, paddingBottom: 100 },
     
-    // --- [NEW] Info Note Styles ---
     infoNoteContainer: {
         flexDirection: 'row',
         backgroundColor: '#E9F5FD',
@@ -179,7 +201,6 @@ const getStyles = (theme) => StyleSheet.create({
         marginBottom: 20,
     },
     
-    // --- [MODIFIED] Input Grouping and Error Styling ---
     inputGroup: {
         width: '100%', 
         marginBottom: 16,
@@ -232,6 +253,6 @@ const getStyles = (theme) => StyleSheet.create({
     separator: {
         height: 1,
         backgroundColor: theme.border,
-        marginVertical: 20, // Give it some space
+        marginVertical: 20,
     }
 });

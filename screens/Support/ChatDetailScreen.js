@@ -14,11 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 // --- SECTION 1: REUSABLE UI COMPONENTS ---
 
-const MessageBubble = React.memo(({ item, theme, showAvatar, userPhotoUrl }) => {
+const MessageBubble = React.memo(({ item, theme, showAvatar, userPhotoUrl, onLongPress }) => {
     const styles = getStyles(theme);
 
-    // --- 💡 FIX: Changed the check from 'type' to 'senderId' for reliability ---
-    // This correctly identifies the system message even if the 'type' field is not saved in the database.
     if (item.senderId === 'system') {
         return (
             <View style={styles.systemMessageContainer}>
@@ -33,20 +31,22 @@ const MessageBubble = React.memo(({ item, theme, showAvatar, userPhotoUrl }) => 
     const timestamp = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     return (
-        <View style={[styles.messageRow, isMyMessage ? styles.myMessageRow : styles.theirMessageRow]}>
-            {!isMyMessage && showAvatar && (
-                <Image 
-                    source={userPhotoUrl ? { uri: userPhotoUrl } : require('../../assets/images/default-avatar.jpg')}
-                    style={styles.avatar}
-                />
-            )}
-            <View style={[styles.messageContent, !isMyMessage && !showAvatar && styles.indented]}>
-                <View style={[styles.messageBubble, isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble]}>
-                    <Text style={isMyMessage ? styles.myMessageText : styles.theirMessageText}>{item.text}</Text>
+        <TouchableOpacity onLongPress={() => onLongPress(item)} activeOpacity={0.8} delayLongPress={200}>
+            <View style={[styles.messageRow, isMyMessage ? styles.myMessageRow : styles.theirMessageRow]}>
+                {!isMyMessage && showAvatar && (
+                    <Image 
+                        source={userPhotoUrl ? { uri: userPhotoUrl } : require('../../assets/images/default-avatar.jpg')}
+                        style={styles.avatar}
+                    />
+                )}
+                <View style={[styles.messageContent, !isMyMessage && !showAvatar && styles.indented]}>
+                    <View style={[styles.messageBubble, isMyMessage ? styles.myMessageBubble : styles.theirMessageBubble]}>
+                        <Text style={isMyMessage ? styles.myMessageText : styles.theirMessageText}>{item.text}</Text>
+                    </View>
+                    <Text style={isMyMessage ? styles.myTimestamp : styles.theirTimestamp}>{timestamp}</Text>
                 </View>
-                <Text style={isMyMessage ? styles.myTimestamp : styles.theirTimestamp}>{timestamp}</Text>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 });
 
@@ -107,13 +107,13 @@ export default function ChatDetailScreen({ route, navigation }) {
     const { user: adminUser } = useAuth();
     const flatListRef = useRef(null);
 
-    const [isUserTyping, setIsUserTyping] = useState(false); // New state
+    const [isUserTyping, setIsUserTyping] = useState(false);
     const [session, setSession] = useState(null);
-    const [messages, setMessages] = useState([]); // Unified message state
+    const [messages, setMessages] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [newMessage, setNewMessage] = useState('');
     const [isSending, setIsSending] = useState(false);
-    const typingTimeoutRef = useRef(null); // Ref for debounce timeout
+    const typingTimeoutRef = useRef(null);
 
 
     const fetchChat = useCallback(async (isInitialLoad = false) => {
@@ -134,6 +134,42 @@ export default function ChatDetailScreen({ route, navigation }) {
             if (isInitialLoad) setIsLoading(false);
         }
     }, [chatId, navigation, showAlert]);
+
+    const handleLongPressMessage = useCallback((item) => {
+        if (item.senderId === 'system') {
+            return;
+        }
+
+        showAlert(
+            "Message Options",
+            `"${item.text.substring(0, 50)}..."`,
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Delete Message", 
+                    style: "destructive", 
+                    onPress: () => handleDeleteMessage(item) 
+                }
+            ]
+        );
+    }, [handleDeleteMessage, showAlert]);
+    
+    const handleDeleteMessage = useCallback(async (messageToDelete) => {
+        if (!messageToDelete?._id) return;
+
+        const originalMessages = [...messages];
+        
+        setMessages(prev => prev.filter(m => m._id !== messageToDelete._id));
+
+        try {
+            await api.delete(`/admin/chats/${chatId}/message/${messageToDelete._id}`);
+            setTimeout(() => fetchChat(false), 500); 
+        } catch (error) {
+            showAlert("Error", "Could not delete the message. Please try again.");
+            setMessages(originalMessages);
+        }
+
+    }, [chatId, messages, showAlert, fetchChat]);
 
     useEffect(() => {
         if (!chatId) return;
@@ -241,6 +277,7 @@ export default function ChatDetailScreen({ route, navigation }) {
                                 theme={theme} 
                                 showAvatar={showAvatar}
                                 userPhotoUrl={session?.userId?.photoUrl}
+                                onLongPress={handleLongPressMessage}
                             />
                         );
                     }}
@@ -275,18 +312,17 @@ const getStyles = (theme) => StyleSheet.create({
     // Header
     headerTitleContainer: { flexDirection: 'row', alignItems: 'center' },
     headerAvatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
-    headerTitleText: { color: theme.textOnPrimary, fontSize: 18, fontWeight: 'bold' },
+    headerTitleText: { color: theme.textOnPrimary, fontSize: 12, fontWeight: 'bold' },
 
     // Message List
     messageList: { paddingHorizontal: 15 },
 
-    // Message Bubbles (Admin is "my", User is "their")
     messageRow: { flexDirection: 'row', marginBottom: 15, alignItems: 'flex-start' },
     myMessageRow: { justifyContent: 'flex-end' },
     theirMessageRow: { justifyContent: 'flex-start' },
     avatar: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
     messageContent: { maxWidth: '80%' },
-    indented: { marginLeft: 46 }, // avatar width + margin
+    indented: { marginLeft: 46 }, 
     messageBubble: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12 },
     myMessageBubble: { backgroundColor: theme.primary },
     theirMessageBubble: { backgroundColor: theme.border },

@@ -134,6 +134,15 @@ export default function AdminProfileScreen({ navigation }) {
     }
   };
 
+   const handleNavigation = (destination, allowedRoles) => {
+        if (allowedRoles.includes(user?.role)) {
+            navigation.navigate(destination);
+        } else {
+            showAlert("Access Denied", "You do not have permission for this action.");
+        }
+    };
+
+
   const handleLogout = () => {
     showAlert("Confirm Logout", "Are you sure you want to log out?", [
         { text: "Cancel", style: "cancel" },
@@ -181,10 +190,13 @@ export default function AdminProfileScreen({ navigation }) {
             <SettingsItem 
                 icon="mail-outline" 
                 label="Inbox" 
-                onPress={() => navigation.navigate('AdminInbox')} 
+                onPress={() => handleNavigation('AdminInbox', ['admin'])}
               />
               <View style={styles.separator} />
-              <SettingsItem icon="lock-closed-outline" label="Change Password" onPress={() => { /* Navigate or show modal */ }} />
+              <SettingsItem
+                            icon="lock-closed-outline"
+                            label="Change Password"
+                            onPress={() => navigation.navigate('AdminChangePassword')}/>
               <View style={styles.separator} />
               <SettingsItem icon="log-out-outline" label="Logout" onPress={handleLogout} isDestructive />
           </InfoCard>

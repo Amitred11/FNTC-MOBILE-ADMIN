@@ -14,8 +14,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// --- Reusable Sub-Components ---
-
 const ProfileHeader = ({ user, theme }) => {
     const styles = getStyles(theme);
     const statusMap = {
@@ -132,7 +130,6 @@ export default function UserDetailScreen({ route, navigation }) {
 
     useEffect(() => { 
         fetchUserDetails(); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
     useLayoutEffect(() => {
@@ -194,7 +191,7 @@ export default function UserDetailScreen({ route, navigation }) {
     if (isLoading) return <View style={styles.centered}><ActivityIndicator size="large" color={theme.primary} /></View>;
     if (!data) return <View style={styles.centered}><Text style={{color: theme.text}}>No data found for this user.</Text></View>;
     
-    const { user, subscriptions, bills, tickets } = data;
+    const { user, subscriptions = [], bills = [], tickets = [] } = data;
     const isDeactivated = user.status === 'deactivated';
     const isActive = user.status === 'active';
     const isSuspended = user.status === 'suspended';
@@ -208,6 +205,11 @@ export default function UserDetailScreen({ route, navigation }) {
                 <View style={styles.stickyHeader}>
                     <Text style={styles.actionsTitle}>Quick Actions</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionsGrid}>
+                        {user.isModemInstalled ? (
+                            <ActionButton icon="arrow-down-circle-outline" label="Retrieve Modem" color={theme.accent} disabled={isActionLoading.modem} onPress={handleToggleModem} />
+                        ) : (
+                            <ActionButton icon="arrow-up-circle-outline" label="Install Modem" color={theme.success} disabled={isActionLoading.modem} onPress={handleToggleModem} />
+                        )}
                         {isActive && <ActionButton icon="ban-outline" label="Suspend" color={theme.warning} disabled={isDeactivated || isActionLoading.status} onPress={() => openStatusModal('suspended')} />}
                         {isSuspended && <ActionButton icon="checkmark-circle-outline" label="Unsuspend" color={theme.success} disabled={isDeactivated || isActionLoading.status} onPress={() => handleUpdateStatus('active')} />}
                         <ActionButton icon="trash-outline" label="Delete" color={theme.danger} disabled={isDeactivated || isActionLoading.delete} onPress={handleDeleteUser} />
@@ -225,15 +227,16 @@ export default function UserDetailScreen({ route, navigation }) {
                             <InfoCard title="Current Subscription" theme={theme}>
                                 {activeSubscription ? (
                                     <>
-                                        <InfoRow label="Plan" value={activeSubscription.planId?.name} theme={theme} />
-                                        <InfoRow label="Start Date" value={new Date(activeSubscription.startDate).toLocaleDateString()} theme={theme} />
-                                        <InfoRow label="Next Renewal" value={new Date(activeSubscription.renewalDate).toLocaleDateString()} theme={theme} />
+                                        <InfoRow label="Plan" value={activeSubscription.planId?.name || 'N/A'} theme={theme} />
+                                        <InfoRow label="Start Date" value={activeSubscription.startDate ? new Date(activeSubscription.startDate).toLocaleDateString() : 'N/A'} theme={theme} />
+                                        <InfoRow label="Next Renewal" value={activeSubscription.renewalDate ? new Date(activeSubscription.renewalDate).toLocaleDateString() : 'N/A'} theme={theme} />
+                                        <InfoRow label="Modem" value={user.isModemInstalled ? 'Installed' : 'Not Installed'} theme={theme} />
                                     </>
                                 ) : <Text style={styles.emptyTabText}>No active subscription.</Text>}
                             </InfoCard>
                             <InfoCard title="Contact Information" theme={theme}>
                                 <InfoRow label="Mobile No" value={user.profile?.mobileNumber || 'N/A'} theme={theme} />
-                                <InfoRow label="Address" value={`${user.profile?.address || 'N/A'} ${user.profile?.city || 'N/A'} ${user.profile?.province || 'N/A'}`} theme={theme} />
+                                <InfoRow label="Address" value={`${user.profile?.address || 'N/A'}, ${user.profile?.city || ''}, ${user.profile?.province || ''}`} theme={theme} />
                             </InfoCard>
                         </>
                     )}
@@ -243,7 +246,7 @@ export default function UserDetailScreen({ route, navigation }) {
                                 key={item._id} theme={theme} onPress={() => navigation.navigate('BillDetail', { billId: item._id })}
                                 icon="receipt-outline" title={item.planName || 'Manual Bill'} date={`Due: ${new Date(item.dueDate).toLocaleDateString()}`}
                                 status={item.status} amount={`₱${item.amount.toFixed(2)}`}
-                                statusColor={{ 'Paid': theme.success, 'Voided': theme.danger, 'Overdue': theme.danger, 'Pending Verification': theme.warning }[item.status] || theme.primary}
+                                statusColor={{ 'Paid': theme.success, 'Voided': theme.textSecondary, 'Overdue': theme.danger, 'Pending Verification': theme.warning }[item.status] || theme.primary}
                             />) : <Text style={styles.emptyTabText}>No recent bills found.</Text>}
                         </>
                     )}
@@ -259,11 +262,10 @@ export default function UserDetailScreen({ route, navigation }) {
                 </View>
             </ScrollView>
             
-            {/* --- Modals --- */}
             <Modal animationType="fade" transparent={true} visible={isStatusModalVisible} onRequestClose={() => setStatusModalVisible(false)}>
                 <View style={styles.modalOverlay}>
                     <Animatable.View animation="zoomIn" duration={300} style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>{targetStatus.charAt(0).toUpperCase() + targetStatus.slice(1)} User</Text>
+                        <Text style={styles.modalTitle}>{targetStatus.charAt(0).toUpperCase() + targetStatus.slice(1)} Account</Text>
                         <TextInput style={styles.modalInput} placeholder={`Reason for ${targetStatus}...`} value={reason} onChangeText={setReason} />
                         <TouchableOpacity style={[styles.modalButton, isActionLoading.status && styles.disabledOpacity]} onPress={() => handleUpdateStatus(targetStatus, reason)} disabled={isActionLoading.status}>
                             {isActionLoading.status ? <ActivityIndicator color={theme.background} /> : <Text style={styles.modalButtonText}>Confirm</Text>}
@@ -288,7 +290,7 @@ const getStyles = (theme) => StyleSheet.create({
     avatarContainer: {
         shadowColor: "#000", shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.1, shadowRadius: 8, elevation: 5,
-        borderRadius: 50, boxShadow: '2px 4px 2px rgba(0,0,0,0.4)'
+        borderRadius: 50,
     },
     avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: theme.primary },
     displayName: { fontSize: 26, fontWeight: '700', color: theme.text, marginTop: 16 },
@@ -301,16 +303,19 @@ const getStyles = (theme) => StyleSheet.create({
     actionsGrid: { flexDirection: 'row', paddingHorizontal: 15, paddingBottom: 15, gap: 10, },
     actionButton: {
         flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, boxShadow: '2px 4px 2px rgba(0,0,0,0.4)'
+        paddingHorizontal: 11, paddingVertical: 10, borderRadius: 12,
     },
-    actionButtonLabel: { fontSize: 13, fontWeight: '600', marginLeft: 8 },
+    actionButtonLabel: { fontSize: 11, fontWeight: '600', marginLeft: 8 },
     disabledOpacity: { opacity: 0.5 },
 
     tabContainer: {
         flexDirection: 'row', justifyContent: 'space-around',
         backgroundColor: theme.surface, marginHorizontal: 15, borderRadius: 15,
         paddingVertical: 5,
-        boxShadow: '2px 4px 2px rgba(0,0,0,0.4)'
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2},
+        shadowOpacity: 0.05
     },
     tabButton: { flex: 1, alignItems: 'center' },
     tabButtonContent: {
@@ -335,7 +340,10 @@ const getStyles = (theme) => StyleSheet.create({
     listItem: {
         backgroundColor: theme.surface, flexDirection: 'row', alignItems: 'center',
         padding: 15, borderRadius: 16, marginBottom: 12,
-        boxShadow: '2px 4px 2px rgba(0,0,0,0.4)'
+        elevation: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1},
+        shadowOpacity: 0.03
     },
     itemIconContainer: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
     itemTextContainer: { flex: 1, marginRight: 10 },

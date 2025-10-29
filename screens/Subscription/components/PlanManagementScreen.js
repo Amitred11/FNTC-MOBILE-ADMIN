@@ -16,10 +16,10 @@ import {
     KeyboardAvoidingView,
     Platform
 } from 'react-native';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
-import api from '../../services/api';
-import { useAlert } from '../../contexts/AlertContext';
+import api from '../../../services/api';
+import { useAlert } from '../../../contexts/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { SvgXml } from 'react-native-svg';
 

@@ -19,7 +19,6 @@ const formatTimeAgo = (timestamp) => {
     const diffInHours = Math.floor(diffInMinutes / 60);
     if (diffInHours < 24) return `${diffInHours}h ago`;
     
-    // If older than a day, show time
     return messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -28,7 +27,6 @@ const ChatSessionCard = ({ item, onPress, theme }) => {
     const lastMessage = item.messages?.[item.messages.length - 1];
     const userName = item.userId?.displayName || 'Unknown User';
     
-    // Check if the last message was from the user and hasn't been seen by an admin
     const isUnread = lastMessage && !lastMessage.isAdmin; 
 
     return (
@@ -81,19 +79,17 @@ export default function LiveChatsScreen({ navigation }) {
         }
     }, [showAlert]);
     
-    // Fetch on focus and set up polling
     useFocusEffect(
         useCallback(() => {
-            fetchChats(true); // Initial fetch
+            fetchChats(true); 
             const intervalId = setInterval(() => {
-                fetchChats(false); // Subsequent polling
-            }, 10000); // Poll every 10 seconds
+                fetchChats(false);
+            }, 10000);
 
-            return () => clearInterval(intervalId); // Cleanup on screen blur
+            return () => clearInterval(intervalId); 
         }, [fetchChats])
     );
     
-    // Handle filtering when search query or master list changes
     useEffect(() => {
         if (searchQuery === '') {
             setFilteredChats(masterChats);

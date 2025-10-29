@@ -150,19 +150,19 @@ const getStyles = (theme) =>
     scrollContent: { paddingBottom: 50 },
     
     heroBanner: { 
-        height: 280, // Slightly taller for better effect
+        height: 280, 
         justifyContent: 'center', 
         alignItems: 'center',
     },
     heroOverlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(20, 20, 40, 0.6)', // A slightly bluish dark overlay
+        backgroundColor: 'rgba(20, 20, 40, 0.6)',
     },
     backButton: {
         position: 'absolute',
-        top: 30, // Adjusted for typical status bar height
+        top: 30, 
         left: 15,
-        padding: 10, // Larger touch area
+        padding: 10, 
         zIndex: 10,
     },
     heroContent: {
@@ -170,7 +170,7 @@ const getStyles = (theme) =>
         paddingTop: 40,
     },
     logo: {
-        width: 100, // Resized for better proportion
+        width: 100, 
         height: 100,
         resizeMode: 'contain',
         marginBottom: 15,
@@ -178,7 +178,7 @@ const getStyles = (theme) =>
         bottom: 60
     },
     mainTitle: { 
-        fontSize: 24, // Slightly larger
+        fontSize: 24,
         fontWeight: 'bold', 
         color: '#FFF', 
         textAlign: 'center',
@@ -256,7 +256,7 @@ const getStyles = (theme) =>
         marginVertical: 20,
         borderLeftWidth: 5,
         borderLeftColor: theme.primary,
-        elevation: 2, // Add subtle shadow
+        elevation: 2, 
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,

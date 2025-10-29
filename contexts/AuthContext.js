@@ -1,3 +1,5 @@
+// AuthContext.js
+
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api, { setLogoutHandler } from '../services/api';
@@ -5,7 +7,6 @@ import api, { setLogoutHandler } from '../services/api';
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
-// A list of all valid staff roles
 const ADMIN_ROLES = ['admin', 'collector', 'field_agent'];
 
 export const AuthProvider = ({ children }) => {
@@ -18,10 +19,10 @@ export const AuthProvider = ({ children }) => {
         const refreshToken = await AsyncStorage.getItem('refreshToken');
         try {
             if (refreshToken) {
-                await api.post('/admin/auth/logout', { refreshToken });
+                api.post('/admin/auth/logout', { refreshToken }).catch(err => {
+                    console.warn("Optional: API logout call failed, but proceeding with cleanup.", err.response?.data?.message || err.message);
+                });
             }
-        } catch (error) {
-            console.error("API logout call failed, but proceeding with client-side cleanup.", error);
         } finally {
             await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
             api.defaults.headers.Authorization = null; 
@@ -37,17 +38,16 @@ export const AuthProvider = ({ children }) => {
         const loadUserFromStorage = async () => {
             setIsLoading(true);
             try {
-                const userJson = await AsyncStorage.getItem('user');
                 const token = await AsyncStorage.getItem('accessToken');
+                const userJson = await AsyncStorage.getItem('user');
                 
                 if (userJson && token) {
+                    api.defaults.headers.Authorization = `Bearer ${token}`;
+                    
                     const storedUser = JSON.parse(userJson);
-                    // ✅ FIX: Allow ANY user whose role is in ADMIN_ROLES to be loaded.
-                    // This is the key change that keeps collectors and agents logged in.
                     if (storedUser && ADMIN_ROLES.includes(storedUser.role)) {
                         setUser(storedUser);
                     } else {
-                        // If a non-staff user somehow has a token, log them out.
                         await logout();
                     }
                 }
@@ -60,13 +60,17 @@ export const AuthProvider = ({ children }) => {
         loadUserFromStorage();
     }, [logout]);
 
-    const adminLogin = async (email, password) => {
+    const adminLogin = async (email, password, rememberMe) => {
         const response = await api.post('/admin/auth/login', { email, password });
         const { accessToken, refreshToken, user: loggedInUser } = response.data;
 
-        await AsyncStorage.setItem('accessToken', accessToken);
-        await AsyncStorage.setItem('refreshToken', refreshToken);
-        await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
+        if (rememberMe) {
+            await AsyncStorage.setItem('accessToken', accessToken);
+            await AsyncStorage.setItem('refreshToken', refreshToken);
+            await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
+        }
+        
+        api.defaults.headers.Authorization = `Bearer ${accessToken}`;
         
         setUser(loggedInUser);
         return loggedInUser;
@@ -78,12 +82,10 @@ export const AuthProvider = ({ children }) => {
         await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
     };
 
-    // ✅ FIX: No longer exporting the rigid 'isAdmin' boolean.
-    // Components will now check the user.role directly for more flexibility.
     const value = { 
         user, 
         isLoading, 
-        isStaff, // Export the new, more accurate check
+        isStaff,
         adminLogin,
         logout, 
         updateUser 

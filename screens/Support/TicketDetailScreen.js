@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useLayoutEffect, useMemo } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Alert, Modal } from 'react-native';
+import { View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Modal, Image } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAlert } from '../../contexts/AlertContext';
 import api from '../../services/api';
@@ -7,8 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SegmentedButtons } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 
-// --- MODIFIED: Simplified MessageBubble Component ---
-// It no longer contains any logic for edit/delete actions.
+// --- Simplified MessageBubble Component ---
 const MessageBubble = ({ item, theme }) => {
     const styles = getStyles(theme);
     const isMyMessage = item.isAdmin === true;
@@ -36,6 +35,9 @@ export default function TicketDetailScreen({ route, navigation }) {
     const [isEditModalVisible, setIsEditModalVisible] = useState(false);
     const [editingMessage, setEditingMessage] = useState(null);
     const [editedText, setEditedText] = useState('');
+
+    const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+    const [viewingImageUrl, setViewingImageUrl] = useState(null);
 
     const fetchTicket = useCallback(async (showLoader = false) => {
         if (showLoader) setIsLoading(true);
@@ -84,7 +86,7 @@ export default function TicketDetailScreen({ route, navigation }) {
     };
 
     const handleDeleteReply = (message) => {
-        Alert.alert("Delete Reply", "Are you sure you want to delete this reply? This cannot be undone.", [
+        showAlert("Delete Reply", "Are you sure you want to delete this reply? This cannot be undone.", [
             { text: "Cancel", style: "cancel" },
             { text: "Delete", style: "destructive", onPress: async () => {
                 setIsSending(true);
@@ -106,9 +108,14 @@ export default function TicketDetailScreen({ route, navigation }) {
         setIsEditModalVisible(true);
     };
 
+    const openImageModal = (url) => {
+        setViewingImageUrl(url);
+        setIsImageModalVisible(true);
+    };
+
     const handleStatusChange = (newStatus) => {
         if (newStatus === ticket.status) return;
-        Alert.alert("Confirm Status Change", `Are you sure you want to change the status to "${newStatus}"?`, [
+        showAlert("Confirm Status Change", `Are you sure you want to change the status to "${newStatus}"?`, [
             { text: "Cancel", style: "cancel" },
             { text: "Confirm", onPress: async () => {
                 const originalStatus = ticket.status;
@@ -127,17 +134,24 @@ export default function TicketDetailScreen({ route, navigation }) {
         <View style={styles.ticketHeader}>
             <Text style={styles.ticketSubject}>{`#${ticket.ticketNumber}: ${ticket.subject}`}</Text>
             <Text style={styles.ticketDescription}>{ticket.description}</Text>
+            {ticket.imageUrl && (
+                <>
+                    <View style={styles.separator} />
+                    <Text style={styles.attachmentTitle}>Attached Evidence</Text>
+                    <TouchableOpacity onPress={() => openImageModal(ticket.imageUrl)}>
+                        <Image source={{ uri: ticket.imageUrl }} style={styles.attachmentImage} resizeMode="cover" />
+                    </TouchableOpacity>
+                </>
+            )}
         </View>
     );
 
-    // --- MODIFIED: `renderItem` now handles the entire row, including actions ---
     const renderMessageItem = ({ item }) => {
         const isMyMessage = item.isAdmin === true;
         const canModify = isMyMessage && item.senderId === adminUser._id;
 
         return (
             <View style={[styles.messageRow, isMyMessage ? styles.myMessageRow : styles.theirMessageRow]}>
-                {/* Actions are rendered BEFORE the bubble for right-aligned messages */}
                 {canModify && (
                     <View style={styles.sideActionsContainer}>
                         <TouchableOpacity onPress={() => openEditModal(item)} style={styles.sideActionButton}>
@@ -169,19 +183,25 @@ export default function TicketDetailScreen({ route, navigation }) {
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={120}>
                 <FlatList
                     data={ticket.messages}
-                    renderItem={renderMessageItem} // Use the new render function
+                    renderItem={renderMessageItem}
                     keyExtractor={(item) => item._id.toString()}
                     style={styles.messageList}
                     inverted
                     ListFooterComponent={renderHeader}
                 />
                 {!adminReply && ticket.status !== 'Closed' && (
-                    <View style={styles.inputContainer}>
-                        <TextInput style={styles.textInput} value={replyText} onChangeText={setReplyText} placeholder="Type your reply..." placeholderTextColor={theme.textSecondary} multiline/>
-                        <TouchableOpacity onPress={handleSendReply} style={[styles.sendButton, (isSending || !replyText.trim()) && styles.disabledButton]} disabled={isSending || !replyText.trim()}>
-                            {isSending ? <ActivityIndicator color={"#FFF"} size="small" /> : <Ionicons name="arrow-up" size={24} color={"#FFF"} />}
-                        </TouchableOpacity>
-                    </View>
+                    <>
+                        <View style={styles.infoBox}>
+                            <Ionicons name="information-circle-outline" size={20} color={theme.primary} />
+                            <Text style={styles.infoText}>You can only reply once to a ticket.</Text>
+                        </View>
+                        <View style={styles.inputContainer}>
+                            <TextInput style={styles.textInput} value={replyText} onChangeText={setReplyText} placeholder="Type your reply..." placeholderTextColor={theme.textSecondary} multiline/>
+                            <TouchableOpacity onPress={handleSendReply} style={[styles.sendButton, (isSending || !replyText.trim()) && styles.disabledButton]} disabled={isSending || !replyText.trim()}>
+                                {isSending ? <ActivityIndicator color={"#FFF"} size="small" /> : <Ionicons name="arrow-up" size={24} color={"#FFF"} />}
+                            </TouchableOpacity>
+                        </View>
+                    </>
                 )}
             </KeyboardAvoidingView>
 
@@ -199,6 +219,14 @@ export default function TicketDetailScreen({ route, navigation }) {
                     </View>
                 </View>
             </Modal>
+        <Modal visible={isImageModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsImageModalVisible(false)}>
+                <SafeAreaView style={styles.imageModalOverlay}>
+                    <TouchableOpacity style={styles.closeButton} onPress={() => setIsImageModalVisible(false)}>
+                        <Ionicons name="close" size={32} color="#FFF" />
+                    </TouchableOpacity>
+                    <Image source={{ uri: viewingImageUrl }} style={styles.fullScreenImage} resizeMode="contain" />
+                </SafeAreaView>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -213,53 +241,36 @@ const getStyles = (theme) => StyleSheet.create({
     ticketSubject: { fontSize: 20, fontWeight: 'bold', color: theme.text, marginBottom: 8 },
     ticketDescription: { fontSize: 15, color: theme.textSecondary, lineHeight: 22, fontStyle: 'italic' },
     messageList: { flex: 1 },
-    
-    // --- MODIFIED: messageRow now aligns items at the bottom ---
-    messageRow: { 
-        flexDirection: 'row', 
-        marginVertical: 8,
-        paddingHorizontal: 15,
-        alignItems: 'flex-end', // Aligns bubble and actions
-    },
+    messageRow: { flexDirection: 'row', marginVertical: 8, paddingHorizontal: 15, alignItems: 'flex-end' },
     myMessageRow: { justifyContent: 'flex-end' },
     theirMessageRow: { justifyContent: 'flex-start' },
-    
-    sideActionsContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginRight: 8,
-        bottom: 20
-    },
-    sideActionButton: {
-        padding: 5,
-    },
-
-    messageBubble: {
-        maxWidth: '80%',
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
+    sideActionsContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8, bottom: 20 },
+    sideActionButton: { padding: 5 },
+    messageBubble: { maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, elevation: 2 },
     myMessageBubble: { backgroundColor: theme.primary, borderBottomRightRadius: 5 },
     theirMessageBubble: { backgroundColor: theme.surface, borderBottomLeftRadius: 5 },
     myMessageText: { color: "#FFF", fontSize: 16 },
     theirMessageText: { color: theme.text, fontSize: 16 },
-    
-    // --- MODIFIED: Timestamp is now simpler ---
-    timestamp: {
-        fontSize: 10,
-        marginTop: 4,
-        alignSelf: 'flex-end',
-    },
+    timestamp: { fontSize: 10, marginTop: 4, alignSelf: 'flex-end' },
     myTimestamp: { color: '#FFFFFF99' },
     theirTimestamp: { color: theme.textSecondary },
-
-    inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface },
+    
+    infoBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.surface,
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: theme.border,
+    },
+    infoText: {
+        color: theme.textSecondary,
+        fontSize: 13,
+        marginLeft: 8,
+    },
+    
+    inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: theme.surface },
     textInput: { flex: 1, backgroundColor: theme.background, color: theme.text, borderRadius: 25, paddingHorizontal: 18, paddingVertical: Platform.OS === 'ios' ? 12 : 8, marginRight: 10, fontSize: 16, maxHeight: 120 },
     sendButton: { backgroundColor: theme.primary, borderRadius: 25, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', elevation: 4 },
     disabledButton: { backgroundColor: theme.disabled, elevation: 0 },
@@ -269,4 +280,11 @@ const getStyles = (theme) => StyleSheet.create({
     modalInput: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 12, minHeight: 100, textAlignVertical: 'top', marginBottom: 20, color: theme.text, fontSize: 16 },
     modalButtonContainer: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
     modalButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+    
+    separator: { height: 1, backgroundColor: theme.border, marginVertical: 15 },
+    attachmentTitle: { fontSize: 14, fontWeight: 'bold', color: theme.textSecondary, marginBottom: 10 },
+    attachmentImage: { width: '100%', height: 200, borderRadius: 10, backgroundColor: theme.background },
+    imageModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
+    fullScreenImage: { width: '100%', height: '80%' },
+    closeButton: { position: 'absolute', top: Platform.OS === 'android' ? 20 : 60, right: 20, zIndex: 1, padding: 10 },
 });

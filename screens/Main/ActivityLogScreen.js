@@ -57,7 +57,6 @@ export default function ActivityLogScreen({ navigation }) {
     const [logs, setLogs] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    // Add pagination state later if needed
 
     const fetchLogs = useCallback(async (isInitial = false) => {
         if (isInitial) setIsLoading(true);

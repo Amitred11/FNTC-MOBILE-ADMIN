@@ -1,12 +1,15 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants'; 
 
-const API_BASE_URL = 'http://192.168.100.12:5000/api';
+const { API_BASE_URL, CONFIG_INTERNAL_API_KEY } = Constants.expoConfig.extra;
+console.log("API BASE URL:", API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
+    'X-Internal-Api-Key': CONFIG_INTERNAL_API_KEY, 
   },
   timeout: 30000,
 });
@@ -18,20 +21,6 @@ let logoutHandler = () => {
 export const setLogoutHandler = (handler) => {
   logoutHandler = handler;
 };
-
-// --- REQUEST INTERCEPTOR ---
-api.interceptors.request.use(
-  async (config) => {
-    const token = await AsyncStorage.getItem('accessToken');
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
 
 api.interceptors.response.use(
   (response) => {
@@ -52,7 +41,10 @@ api.interceptors.response.use(
         
         const userJson = await AsyncStorage.getItem('user');
         const user = userJson ? JSON.parse(userJson) : {};
-        const refreshEndpoint = user.role === 'admin' ? '/admin/auth/refresh' : '/auth/refresh';
+
+        const ADMIN_ROLES = ['admin', 'collector', 'field_agent'];
+        const isStaff = user.role && ADMIN_ROLES.includes(user.role);
+        const refreshEndpoint = isStaff ? '/admin/auth/refresh' : '/auth/refresh';
 
         const { data } = await api.post(refreshEndpoint, { refreshToken });
         

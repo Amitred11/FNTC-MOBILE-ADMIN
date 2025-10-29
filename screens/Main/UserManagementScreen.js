@@ -121,7 +121,6 @@ const UserManagementScreen = () => {
         }
     }, [showAlert]);
 
-    // Effect for initial load and search changes
     useEffect(() => {
         fetchUsers(1, debouncedSearch);
     }, [debouncedSearch, fetchUsers]);

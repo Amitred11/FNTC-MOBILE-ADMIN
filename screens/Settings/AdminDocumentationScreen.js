@@ -53,7 +53,6 @@ export default function AdminDocumentationScreen() {
                 <Text style={styles.mainTitle}>App Documentation</Text>
                 <Text style={styles.mainSubtitle}>A guide to managing the FiBear Network system.</Text>
 
-                {/* ✅ --- NEW ROLE-FOCUSED SECTION --- */}
                 <DocSection title="Understanding User Roles">
                     <DocParagraph>
                         This admin panel has three distinct user roles, each with specific permissions. The tabs and features you see are based on your assigned role.
