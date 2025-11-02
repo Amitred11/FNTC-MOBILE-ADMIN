@@ -191,7 +191,6 @@ export default function BillDetailScreen() {
         ]);
     };
 
-    // --- [THIS IS THE ONLY PART THAT HAS CHANGED] ---
     const renderFooterActions = () => {
         if (!bill || bill.status === 'Voided') return null;
         
@@ -251,7 +250,6 @@ export default function BillDetailScreen() {
         );
     };
 
-    // --- (Main component render and modals remain unchanged) ---
     if (isLoading) return <View style={styles.centered}><ActivityIndicator size="large" color={theme.primary} /></View>;
     if (!bill) return <View style={styles.centered}><Text>Bill not found.</Text></View>;
     const status = getStatusDetails(bill.status, theme);

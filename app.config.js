@@ -4,6 +4,7 @@ export default {
   expo: {
     name: "ADMIN",
     slug: "ADMIN",
+    scheme: "fibearadmin",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/logo.png",
@@ -18,6 +19,7 @@ export default {
       supportsTablet: true,
     },
     android: {
+      package: "com.hellopo123.fibearadmin",
       adaptiveIcon: {
         foregroundImage: "./assets/logo.png",
         backgroundColor: "#ffffff"
@@ -31,7 +33,6 @@ export default {
       favicon: "./assets/logo.png"
     },
     plugins: [
-      "@react-native-firebase/app",
       "expo-router",
       "expo-camera",
       "expo-barcode-scanner"
