@@ -60,7 +60,7 @@ export default function AdminLoginScreen() {
             <StatusBar barStyle="light-content" />
             <View style={styles.header}>
                 <Animatable.View animation="fadeInDown" duration={1000}>
-                    <Image source={require('../../assets/logo.png')} style={{ width: 100, height: 100 }} />
+                    <Image source={require('../../assets/images/logo.png')} style={{ width:100, height: 40 }} />
                 </Animatable.View>
                 <Animatable.Text animation="fadeInUp" duration={1000} style={styles.headerText}>Admin Portal</Animatable.Text>
             </View>

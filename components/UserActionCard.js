@@ -11,14 +11,12 @@ const ActionRow = ({ theme, icon, color, title, subtitle, buttons = [] }) => {
                 <Ionicons name={icon} size={22} color={color} />
             </View>
 
-            {/* This container holds the text and buttons in a vertical stack */}
             <View style={styles.actionBody}>
                 <View style={styles.actionTextContainer}>
                     <Text style={styles.actionTitle}>{title}</Text>
                     {subtitle && <Text style={styles.actionSubtitle}>{subtitle}</Text>}
                 </View>
 
-                {/* Buttons are rendered below the text */}
                 {buttons.length > 0 && (
                     <View style={styles.actionButtonsGroup}>
                         {buttons.map((btn, index) => (

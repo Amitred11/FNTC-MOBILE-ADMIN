@@ -195,9 +195,9 @@ export default function BillDetailScreen() {
     const renderFooterActions = () => {
         if (!bill || bill.status === 'Voided') return null;
         
-        const isEditable = ['Upcoming', 'Due', 'Overdue', 'Paid'].includes(bill.status);
+        const isEditable = ['Upcoming', 'Due', 'Overdue'].includes(bill.status);
         const isDeletable = bill.status !== null;
-
+ 
         return (
             <View style={styles.footerContent}>
                 <View style={styles.primaryActionsContainer}>

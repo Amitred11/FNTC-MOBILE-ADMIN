@@ -38,11 +38,11 @@ export default {
     ],
     extra: {
       eas: {
-        projectId: "c0981eda-5795-4ed9-9cc7-fbb46fdd4369"
+        projectId: "da6490a8-da67-4e76-82db-499af557fe3a"
       },
       API_BASE_URL: process.env.API_BASE_URL,
       CONFIG_INTERNAL_API_KEY: process.env.CONFIG_INTERNAL_API_KEY
     },
-    owner: "user12312312312"
+    owner: "hellopo123"
   }
 };

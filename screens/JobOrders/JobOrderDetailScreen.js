@@ -1,11 +1,19 @@
+// screens/JobOrderDetailScreen.js
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, SafeAreaView, TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+    View, Text, StyleSheet, ScrollView, ActivityIndicator, SafeAreaView,
+    TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform,
+    Image, FlatList, Dimensions
+} from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useAlert } from '../../contexts/AlertContext';
 import { useAuth } from '../../contexts/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
+
+const { width } = Dimensions.get('window');
 
 // --- Reusable Components ---
 
@@ -31,16 +39,21 @@ export default function JobOrderDetailScreen({ route, navigation }) {
     const { theme } = useTheme();
     const styles = getStyles(theme);
     const { showAlert } = useAlert();
-    const { user } = useAuth(); 
+    const { user } = useAuth();
 
     const [job, setJob] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
-    // State for the status update modal
-    const [isModalVisible, setModalVisible] = useState(false);
-    const [note, setNote] = useState('');
-    const [targetStatus, setTargetStatus] = useState('');
+
+    // Modal states
+    const [isCompletedModalVisible, setCompletedModalVisible] = useState(false);
+    const [isOnHoldModalVisible, setOnHoldModalVisible] = useState(false);
+    const [modalNote, setModalNote] = useState(''); // Renamed to avoid conflict with job notes
+    const [modalPhotoEvidences, setModalPhotoEvidences] = useState([]); // For modal photos
+
+    // State for the full-screen image viewer
+    const [isImageViewerVisible, setImageViewerVisible] = useState(false);
+    const [imageViewerData, setImageViewerData] = useState({ images: [], startIndex: 0 });
 
     const fetchJobDetails = useCallback(async () => {
         if (!jobId) {
@@ -59,9 +72,9 @@ export default function JobOrderDetailScreen({ route, navigation }) {
         }
     }, [jobId, navigation, showAlert]);
 
-    useFocusEffect(useCallback(() => { 
+    useFocusEffect(useCallback(() => {
         setIsLoading(true);
-        fetchJobDetails(); 
+        fetchJobDetails();
     }, [fetchJobDetails]));
 
     // --- Action Handlers ---
@@ -78,7 +91,7 @@ export default function JobOrderDetailScreen({ route, navigation }) {
         }
     };
 
-    const handleDecline = async () => {
+    const handleDecline = () => {
         showAlert("Confirm Decline", "Are you sure you want to decline this job? It will be returned to the queue.", [
             { text: "Cancel", style: "cancel" },
             { text: "Decline", style: "destructive", onPress: async () => {
@@ -94,30 +107,160 @@ export default function JobOrderDetailScreen({ route, navigation }) {
         ]);
     };
 
-    const handleStatusUpdate = async () => {
-        if (!note.trim()) {
-            return showAlert("Note Required", "Please provide a note for this status update.");
-        }
+    const handleDirectStatusUpdate = async (newStatus) => {
         setIsSubmitting(true);
         try {
-            const payload = { status: targetStatus, note: note };
-            await api.put(`/admin/job-orders/${jobId}/status`, payload);
-            showAlert("Success", `Job status has been updated to ${targetStatus}.`);
-            setModalVisible(false);
-            setNote('');
+            await api.put(`/admin/job-orders/${jobId}/status`, { status: newStatus });
+            showAlert("Success", `Job status has been updated to ${newStatus}.`);
             await fetchJobDetails();
         } catch (error) {
             showAlert("Error", error.response?.data?.message || "Failed to update status.");
+        } finally {
             setIsSubmitting(false);
         }
     };
-    
-    const openStatusModal = (status) => {
-        setTargetStatus(status);
-        setModalVisible(true);
+
+    const handleOnHoldStatusUpdate = async () => {
+        // Only submit if there's a reason OR evidence
+        if (!modalNote.trim() && modalPhotoEvidences.length === 0) {
+            return showAlert("Note or Evidence Required", "Please provide a reason or upload photo evidence for putting this job on hold.");
+        }
+        setIsSubmitting(true);
+
+        const formData = new FormData();
+        formData.append('status', 'On Hold');
+        if (modalNote.trim()) {
+            formData.append('note', modalNote);
+        }
+
+        modalPhotoEvidences.forEach((photoUri) => {
+            const uriParts = photoUri.split('/');
+            const fileName = uriParts[uriParts.length - 1];
+            formData.append('evidences', {
+                uri: photoUri,
+                name: fileName,
+                type: `image/jpeg`, // Consider deriving from file extension if possible
+            });
+        });
+
+        try {
+            await api.put(`/admin/job-orders/${jobId}/status`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            showAlert("Success", "Job status has been updated to On Hold.");
+            setOnHoldModalVisible(false);
+            resetModalState('hold'); // Reset modal state
+            await fetchJobDetails();
+        } catch (error) {
+            showAlert("Error", error.response?.data?.message || "Failed to update status.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-    // --- Render Action Buttons based on Role and Status ---
+    const handleCompletedStatusUpdate = async () => {
+        if (modalPhotoEvidences.length === 0) {
+            return showAlert("Evidence Required", "Please provide at least one photo as evidence to complete the job.");
+        }
+        setIsSubmitting(true);
+
+        const formData = new FormData();
+        formData.append('status', 'Completed');
+        if (modalNote.trim()) {
+            formData.append('note', modalNote);
+        }
+
+        modalPhotoEvidences.forEach((photoUri) => {
+            const uriParts = photoUri.split('/');
+            const fileName = uriParts[uriParts.length - 1];
+            formData.append('evidences', {
+                uri: photoUri,
+                name: fileName,
+                type: `image/jpeg`, // Or derive from file extension
+            });
+        });
+
+        try {
+            await api.put(`/admin/job-orders/${jobId}/status`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            showAlert("Success", `Job status has been updated to Completed.`);
+            setCompletedModalVisible(false);
+            resetModalState('completed'); // Reset modal state
+            await fetchJobDetails();
+        } catch (error) {
+            showAlert("Error", error.response?.data?.message || "Failed to update status.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // Helper to reset modal states
+    const resetModalState = (modalType) => {
+        if (modalType === 'completed') {
+            setModalNote('');
+            setModalPhotoEvidences([]);
+        } else if (modalType === 'hold') {
+            setModalNote('');
+            setModalPhotoEvidences([]);
+        }
+    };
+
+    const openCompletedModal = () => {
+        resetModalState('completed');
+        setCompletedModalVisible(true);
+    };
+
+    const openOnHoldModal = () => {
+        resetModalState('hold');
+        setOnHoldModalVisible(true);
+    };
+
+    const handlePickImage = async (isModalUpdate = false) => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            showAlert('Permission Denied', 'Sorry, we need camera roll permissions to make this work.');
+            return;
+        }
+
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.7,
+        });
+
+        if (!result.canceled) {
+            if (isModalUpdate) {
+                setModalPhotoEvidences(prev => [...prev, result.assets[0].uri]);
+            } else {
+                // This branch might be for a different use case if needed, currently only modal photos are used
+                // setPhotoEvidences([...photoEvidences, result.assets[0].uri]);
+            }
+        }
+    };
+
+    const removePhoto = (uri, isModalUpdate = false) => {
+        if (isModalUpdate) {
+            setModalPhotoEvidences(modalPhotoEvidences.filter(photo => photo !== uri));
+        } else {
+            // Handle removal for other photo lists if they exist
+        }
+    };
+
+    const openImageViewer = (clickedEvidence) => {
+        const allEvidences = job.notes.flatMap(note => note.evidences || []);
+        const imageUrls = allEvidences.map(e => e.url);
+        const startIndex = imageUrls.findIndex(url => url === clickedEvidence.url);
+
+        setImageViewerData({
+            images: imageUrls,
+            startIndex: startIndex >= 0 ? startIndex : 0,
+        });
+        setImageViewerVisible(true);
+    };
+
+    // --- Render Logic ---
 
     const renderActionButtons = () => {
         if (user?.role !== 'field_agent' || !job) return null;
@@ -137,19 +280,27 @@ export default function JobOrderDetailScreen({ route, navigation }) {
             case 'Assigned':
                 return (
                     <View style={styles.actionsContainer}>
-                        <TouchableOpacity style={styles.fullWidthButton} onPress={() => openStatusModal('In Progress')} disabled={isSubmitting}>
-                           {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Start Work</Text>}
+                        <TouchableOpacity style={styles.fullWidthButton} onPress={() => handleDirectStatusUpdate('In Progress')} disabled={isSubmitting}>
+                            {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Start Work</Text>}
                         </TouchableOpacity>
                     </View>
                 );
             case 'In Progress':
                 return (
-                     <View style={styles.actionsContainer}>
-                        <TouchableOpacity style={styles.secondaryButton} onPress={() => openStatusModal('On Hold')} disabled={isSubmitting}>
+                    <View style={styles.actionsContainer}>
+                        <TouchableOpacity style={styles.secondaryButton} onPress={openOnHoldModal} disabled={isSubmitting}>
                             <Text style={styles.secondaryButtonText}>On Hold</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.acceptButton} onPress={() => openStatusModal('Completed')} disabled={isSubmitting}>
-                           {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Mark as Completed</Text>}
+                        <TouchableOpacity style={styles.acceptButton} onPress={openCompletedModal} disabled={isSubmitting}>
+                            {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Mark as Completed</Text>}
+                        </TouchableOpacity>
+                    </View>
+                );
+            case 'On Hold':
+                return (
+                    <View style={styles.actionsContainer}>
+                        <TouchableOpacity style={styles.fullWidthButton} onPress={() => handleDirectStatusUpdate('In Progress')} disabled={isSubmitting}>
+                            {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Resume Work</Text>}
                         </TouchableOpacity>
                     </View>
                 );
@@ -166,25 +317,15 @@ export default function JobOrderDetailScreen({ route, navigation }) {
         return <SafeAreaView style={styles.centered}><Text style={styles.emptyText}>Job details could not be loaded.</Text></SafeAreaView>;
     }
 
-    const getCustomerInfo = () => {
-        if (job.userId) { 
-            return {
-                name: job.userId.displayName,
-                contact: job.userId.profile?.mobileNumber,
-                address: `${job.userId.profile?.address || ''}, ${job.userId.profile?.city || ''}, ${job.userId.profile?.province || ''}`.trim(),
-            };
-        }
-        if (job.customerDetails) { 
-            return {
-                name: job.customerDetails.name,
-                contact: job.customerDetails.contactNumber,
-                address: job.customerDetails.address,
-            };
-        }
-        return { name: 'Unknown', contact: 'N/A', address: 'N/A' };
-    };
-    
-    const customer = getCustomerInfo();
+    const customer = job.userId ? {
+        name: job.userId.displayName,
+        contact: job.userId.profile?.mobileNumber,
+        address: [job.userId.profile?.address, job.userId.profile?.city, job.userId.profile?.province].filter(Boolean).join(', '),
+    } : job.customerDetails ? {
+        name: job.customerDetails.name,
+        contact: job.customerDetails.contactNumber,
+        address: job.customerDetails.address,
+    } : { name: 'Unknown', contact: 'N/A', address: 'N/A' };
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -211,43 +352,159 @@ export default function JobOrderDetailScreen({ route, navigation }) {
                     <Text style={styles.descriptionText}>{job.description}</Text>
                 </View>
 
-                 {job.notes?.length > 0 && (
+                {job.notes?.length > 0 && (
                     <View style={styles.card}>
-                        <Text style={styles.title}>History & Notes</Text>
+                        <Text style={styles.title}>Activity Log</Text>
                         {job.notes.map((note, index) => (
                             <View key={index} style={styles.noteItem}>
                                 <Text style={styles.noteText}>{note.text}</Text>
-                                <Text style={styles.noteAuthor}>- {note.author || 'System'} on {new Date(note.timestamp || Date.now()).toLocaleDateString()}</Text>
+                                {note.evidences && note.evidences.length > 0 && (
+                                    <View style={styles.evidenceContainer}>
+                                        {note.evidences.map((evidence, eIndex) => (
+                                            <TouchableOpacity key={eIndex} onPress={() => openImageViewer(evidence)}>
+                                                <Image source={{ uri: evidence.url }} style={styles.evidenceThumbnail} />
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                                <Text style={styles.noteAuthor}>- {note.author?.displayName || 'System'} on {new Date(note.timestamp || Date.now()).toLocaleDateString()}</Text>
                             </View>
                         ))}
                     </View>
                 )}
             </ScrollView>
-            
+
             {renderActionButtons()}
 
-            <Modal animationType="fade" transparent={true} visible={isModalVisible} onRequestClose={() => setModalVisible(false)}>
+            {/* --- 'Mark as Completed' Modal --- */}
+            <Modal animationType="fade" transparent={true} visible={isCompletedModalVisible} onRequestClose={() => setCompletedModalVisible(false)}>
                 <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Update Status to "{targetStatus}"</Text>
-                        <Text style={styles.modalLabel}>Add a note (required)</Text>
+                        <Text style={styles.modalTitle}>Complete Job</Text>
+                        <Text style={styles.modalLabel}>Photo Evidence (Required)</Text>
+                        <FlatList
+                            horizontal
+                            data={modalPhotoEvidences}
+                            keyExtractor={(item) => item}
+                            renderItem={({ item }) => (
+                                <View style={styles.thumbnailContainer}>
+                                    <Image source={{ uri: item }} style={styles.thumbnail} />
+                                    <TouchableOpacity style={styles.removeButton} onPress={() => removePhoto(item, true)}>
+                                        <Ionicons name="close-circle" size={24} color={theme.error} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            ListFooterComponent={
+                                modalPhotoEvidences.length < 5 && ( // Limit to 5 photos
+                                    <TouchableOpacity style={styles.addPhotoButton} onPress={() => handlePickImage(true)}>
+                                        <Ionicons name="camera" size={24} color={theme.primary} />
+                                        <Text style={styles.addPhotoButtonText}>Add Photo</Text>
+                                    </TouchableOpacity>
+                                )
+                            }
+                            showsHorizontalScrollIndicator={false}
+                            style={{ marginBottom: 15 }}
+                        />
+                        <Text style={styles.modalLabel}>Add a note (Optional)</Text>
                         <TextInput
                             style={styles.modalInput}
-                            placeholder="e.g., 'Completed installation successfully.'"
+                            placeholder="e.g., 'Customer's pipe has been replaced.'"
                             multiline
-                            value={note}
-                            onChangeText={setNote}
+                            value={modalNote}
+                            onChangeText={setModalNote}
                         />
                         <View style={styles.modalActions}>
-                             <TouchableOpacity style={styles.modalCancelButton} onPress={() => setModalVisible(false)}>
+                             <TouchableOpacity style={styles.modalCancelButton} onPress={() => { setCompletedModalVisible(false); resetModalState('completed'); }}>
                                 <Text style={styles.secondaryButtonText}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.modalConfirmButton} onPress={handleStatusUpdate} disabled={isSubmitting}>
-                                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Confirm Update</Text>}
+                            <TouchableOpacity style={styles.modalConfirmButton} onPress={handleCompletedStatusUpdate} disabled={isSubmitting || modalPhotoEvidences.length === 0}>
+                                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Confirm Completion</Text>}
                             </TouchableOpacity>
                         </View>
                     </View>
                 </KeyboardAvoidingView>
+            </Modal>
+
+            {/* --- 'On Hold' Modal --- */}
+            <Modal animationType="fade" transparent={true} visible={isOnHoldModalVisible} onRequestClose={() => setOnHoldModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text style={styles.modalTitle}>Put Job On Hold</Text>
+                        <Text style={styles.modalLabel}>Reason (Optional)</Text>
+                        <TextInput
+                            style={[styles.modalInput, { height: 80 }]} // Shorter input for reason
+                            placeholder="e.g., 'Waiting for specific parts to arrive.'"
+                            multiline
+                            value={modalNote}
+                            onChangeText={setModalNote}
+                        />
+
+                        <Text style={styles.modalLabel}>Add Photo Evidence (Optional)</Text>
+                        <FlatList
+                            horizontal
+                            data={modalPhotoEvidences}
+                            keyExtractor={(item) => item}
+                            renderItem={({ item }) => (
+                                <View style={styles.thumbnailContainer}>
+                                    <Image source={{ uri: item }} style={styles.thumbnail} />
+                                    <TouchableOpacity style={styles.removeButton} onPress={() => removePhoto(item, true)}>
+                                        <Ionicons name="close-circle" size={24} color={theme.error} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            ListFooterComponent={
+                                modalPhotoEvidences.length < 3 && ( // Limit to 3 photos for 'On Hold'
+                                    <TouchableOpacity style={styles.addPhotoButton} onPress={() => handlePickImage(true)}>
+                                        <Ionicons name="camera" size={24} color={theme.primary} />
+                                        <Text style={styles.addPhotoButtonText}>Add Photo</Text>
+                                    </TouchableOpacity>
+                                )
+                            }
+                            showsHorizontalScrollIndicator={false}
+                            style={{ marginBottom: 15 }}
+                        />
+
+                        <View style={styles.modalActions}>
+                             <TouchableOpacity style={styles.modalCancelButton} onPress={() => { setOnHoldModalVisible(false); resetModalState('hold'); }}>
+                                <Text style={styles.secondaryButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.modalConfirmButton} onPress={handleOnHoldStatusUpdate} disabled={isSubmitting}>
+                                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.acceptButtonText}>Confirm</Text>}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            {/* --- Full-Screen Image Viewer Modal --- */}
+            <Modal
+                visible={isImageViewerVisible}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setImageViewerVisible(false)}
+            >
+                <View style={styles.imageViewerOverlay}>
+                    <TouchableOpacity style={styles.closeButton} onPress={() => setImageViewerVisible(false)}>
+                        <Ionicons name="close" size={32} color="#FFFFFF" />
+                    </TouchableOpacity>
+                    <FlatList
+                        data={imageViewerData.images}
+                        keyExtractor={(item, index) => `${item}-${index}`}
+                        horizontal
+                        pagingEnabled
+                        initialScrollIndex={imageViewerData.startIndex}
+                        getItemLayout={(data, index) => ({
+                            length: width,
+                            offset: width * index,
+                            index,
+                        })}
+                        renderItem={({ item }) => (
+                            <View style={styles.fullScreenImageContainer}>
+                                <Image source={{ uri: item }} style={styles.fullScreenImage} resizeMode="contain" />
+                            </View>
+                        )}
+                    />
+                </View>
             </Modal>
         </SafeAreaView>
     );
@@ -266,13 +523,10 @@ const getStyles = (theme) => StyleSheet.create({
     descriptionText: { fontSize: 16, color: theme.text, lineHeight: 24 },
     infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
     infoRowLabel: { fontSize: 16, color: theme.textSecondary },
-    infoRowValue: { fontSize: 12, color: theme.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+    infoRowValue: { fontSize: 16, color: theme.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
     emptyText: { color: theme.textSecondary, textAlign: 'center' },
-    addressText: {
-        textAlign: 'right',
-        flexShrink: 1,
-    },
-    
+    addressText: { textAlign: 'right', flexShrink: 1 },
+
     // Action Buttons
     actionsContainer: { flexDirection: 'row', padding: 15, gap: 10, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.surface },
     acceptButton: { flex: 2, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -283,18 +537,33 @@ const getStyles = (theme) => StyleSheet.create({
     secondaryButton: { flex: 1, backgroundColor: theme.surface, padding: 15, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: theme.border },
     secondaryButtonText: { color: theme.text, fontSize: 16, fontWeight: 'bold' },
 
-    // Modal Styles
+    // Status Update Modal Styles
     modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-    modalContent: { backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.text, marginBottom: 10, textAlign: 'center' },
+    modalContent: { backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.text, marginBottom: 20, textAlign: 'center' },
     modalLabel: { fontSize: 16, color: theme.textSecondary, marginBottom: 8, marginTop: 10 },
-    modalInput: { backgroundColor: theme.background, color: theme.text, height: 100, borderRadius: 10, borderWidth: 1, borderColor: theme.border, padding: 10, textAlignVertical: 'top' },
+    modalInput: { backgroundColor: theme.background, color: theme.text, borderRadius: 10, borderWidth: 1, borderColor: theme.border, padding: 10, textAlignVertical: 'top' },
     modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, gap: 10 },
-    modalConfirmButton: { flex: 2, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
+    modalConfirmButton: { flex: 2, backgroundColor: theme.primary, padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     modalCancelButton: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background, borderRadius: 10, borderWidth: 1, borderColor: theme.border },
 
-    // Note Styles
-    noteItem: { borderBottomWidth: 1, borderBottomColor: theme.border, paddingVertical: 10 },
-    noteText: { fontSize: 15, color: theme.text },
-    noteAuthor: { fontSize: 12, color: theme.textSecondary, textAlign: 'right', fontStyle: 'italic', marginTop: 4 },
+    // Photo Evidence (Modal Input) Styles
+    addPhotoButton: { width: 80, height: 80, borderRadius: 10, borderWidth: 1, borderColor: theme.border, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background },
+    addPhotoButtonText: { color: theme.primary, fontSize: 12, marginTop: 4 },
+    thumbnailContainer: { marginRight: 10, position: 'relative' },
+    thumbnail: { width: 80, height: 80, borderRadius: 10 },
+    removeButton: { position: 'absolute', top: -5, right: -5, backgroundColor: theme.surface, borderRadius: 12 },
+
+    // Activity Log & Evidence Styles
+    noteItem: { paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: theme.border },
+    noteText: { fontSize: 15, color: theme.text, lineHeight: 22 },
+    noteAuthor: { fontSize: 12, color: theme.textSecondary, textAlign: 'right', fontStyle: 'italic', marginTop: 8 },
+    evidenceContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+    evidenceThumbnail: { width: 70, height: 70, borderRadius: 8, backgroundColor: theme.border },
+
+    // Image Viewer Modal Styles
+    imageViewerOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.9)' },
+    closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 1, padding: 10 },
+    fullScreenImageContainer: { width: width, height: '100%', justifyContent: 'center', alignItems: 'center' },
+    fullScreenImage: { width: '100%', height: '80%' },
 });
